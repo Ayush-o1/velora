@@ -59,6 +59,11 @@ class DuplicateBookingError(BookingError):
     message = "You already have an active booking for this session."
 
 
+class CannotBookOwnSessionError(BookingError):
+    code = "cannot_book_own_session"
+    message = "You are hosting this session, so you cannot book a seat on it."
+
+
 @dataclass
 class BookingResult:
     booking: Booking
@@ -66,13 +71,17 @@ class BookingResult:
 
 @transaction.atomic
 def create_booking(*, user, session_id: int) -> Booking:
-    try:
-        session = Session.objects.select_for_update().get(pk=session_id)
-    except Session.DoesNotExist:
-        raise Session.DoesNotExist
+    # Raises Session.DoesNotExist, which the view maps to a 404.
+    session = Session.objects.select_for_update().get(pk=session_id)
 
     if session.start_time <= timezone.now():
         raise SessionAlreadyStartedError
+
+    # The host occupies no seat of their own — enforced here rather than
+    # only in the UI, since the frontend's "this is your own session"
+    # notice is not a security boundary and a direct POST bypasses it.
+    if session.creator_id == user.id:
+        raise CannotBookOwnSessionError
 
     # Checked before capacity deliberately: if this user is themselves the
     # reason the session reads as full (they already hold the seat), the

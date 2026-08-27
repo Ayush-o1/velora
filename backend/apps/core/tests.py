@@ -16,3 +16,28 @@ def test_generic_404_uses_not_found_code_not_leaked_class_name(api_client):
     response = api_client.get("/api/sessions/999999999/")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_validation_errors_are_flattened_into_a_readable_sentence(api_client, creator):
+    """
+    DRF returns field errors as a nested object. The envelope used to pass
+    that straight through as `detail`, so the frontend — which renders
+    `detail` as the message — could only show the user a literal
+    `{"capacity":["..."]}` blob. `detail` is now a sentence; the
+    structure survives alongside it under `fields` for form binding.
+    """
+    from rest_framework_simplejwt.tokens import AccessToken
+
+    header = {"HTTP_AUTHORIZATION": f"Bearer {AccessToken.for_user(creator)}"}
+    response = api_client.post(
+        "/api/sessions/",
+        {"title": "", "start_time": "not-a-date", "duration_minutes": 0, "capacity": 0},
+        format="json",
+        **header,
+    )
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert isinstance(error["detail"], str)
+    assert "{" not in error["detail"]
+    assert set(error["fields"]) >= {"title", "start_time", "capacity"}

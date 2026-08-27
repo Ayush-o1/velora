@@ -156,3 +156,73 @@ def test_cannot_cancel_another_users_booking(api_client, plain_user, make_user, 
     from apps.bookings.models import Booking
 
     assert Booking.objects.get(id=booking_id).status == Booking.Status.ACTIVE
+
+
+# --- Audit-pass hardening ------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_malformed_booking_id_returns_404_not_500(api_client, plain_user):
+    """
+    The router's lookup regex accepts any non-slash segment, so a
+    non-numeric id reached the ORM and raised an unhandled ValueError —
+    a 500 on plainly malformed input. An id that *cannot* exist should
+    get the same 404 as an id that simply doesn't.
+    """
+    response = api_client.delete("/api/bookings/abc/", **auth_header(plain_user))
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "booking_not_found"
+
+
+@pytest.mark.django_db
+def test_creator_cannot_book_their_own_session(api_client, creator, make_session):
+    """
+    The session page tells a creator "this is your own session", but that
+    notice is not a security boundary — a direct POST bypassed it and the
+    host silently consumed one of their own seats.
+    """
+    session = make_session(owner=creator, capacity=1)
+    response = api_client.post(
+        "/api/bookings/", {"session": session.id}, format="json", **auth_header(creator)
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "cannot_book_own_session"
+
+    from apps.bookings.models import Booking
+
+    assert Booking.objects.filter(session=session).count() == 0
+
+
+@pytest.mark.django_db
+def test_another_creator_can_still_book_someone_elses_session(
+    api_client, creator, other_creator, make_session
+):
+    """Being a creator is not itself disqualifying — only being *this*
+    session's host is."""
+    session = make_session(owner=creator, capacity=2)
+    response = api_client.post(
+        "/api/bookings/", {"session": session.id}, format="json", **auth_header(other_creator)
+    )
+    assert response.status_code == 201
+
+
+@pytest.mark.django_db
+def test_booking_payload_cannot_assign_another_user_or_a_forced_status(
+    api_client, plain_user, make_user, make_session
+):
+    """Mass-assignment probe: only `session` is read off the request body."""
+    from apps.bookings.models import Booking
+
+    session = make_session(capacity=5)
+    victim = make_user("victimuser")
+    response = api_client.post(
+        "/api/bookings/",
+        {"session": session.id, "user": victim.id, "status": "cancelled", "id": 4242},
+        format="json",
+        **auth_header(plain_user),
+    )
+    assert response.status_code == 201
+    booking = Booking.objects.get(session=session)
+    assert booking.user == plain_user
+    assert booking.status == Booking.Status.ACTIVE
+    assert booking.id != 4242

@@ -12,6 +12,10 @@ from .models import Booking
 from .serializers import BookingCreateSerializer, BookingSerializer
 
 
+def _error(code: str, detail: str, http_status: int) -> Response:
+    return Response({"error": {"code": code, "detail": detail}}, status=http_status)
+
+
 class BookingViewSet(GenericViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = BookingSerializer
@@ -27,30 +31,13 @@ class BookingViewSet(GenericViewSet):
         try:
             booking = services.create_booking(user=request.user, session_id=session_id)
         except Session.DoesNotExist:
-            return Response(
-                {"error": {"code": "session_not_found", "detail": "Session does not exist."}},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except services.SessionAlreadyStartedError:
-            return Response(
-                {"error": {"code": "session_already_started", "detail": "This session has already started."}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except services.SessionFullError:
-            return Response(
-                {"error": {"code": "session_full", "detail": "This session is fully booked."}},
-                status=status.HTTP_409_CONFLICT,
-            )
-        except services.DuplicateBookingError:
-            return Response(
-                {
-                    "error": {
-                        "code": "duplicate_booking",
-                        "detail": "You already have an active booking for this session.",
-                    }
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
+            return _error("session_not_found", "Session does not exist.", status.HTTP_404_NOT_FOUND)
+        except services.SessionAlreadyStartedError as exc:
+            return _error(exc.code, exc.message, status.HTTP_400_BAD_REQUEST)
+        except services.CannotBookOwnSessionError as exc:
+            return _error(exc.code, exc.message, status.HTTP_403_FORBIDDEN)
+        except (services.SessionFullError, services.DuplicateBookingError) as exc:
+            return _error(exc.code, exc.message, status.HTTP_409_CONFLICT)
 
         return Response(BookingSerializer(booking).data, status=status.HTTP_201_CREATED)
 
@@ -65,27 +52,29 @@ class BookingViewSet(GenericViewSet):
             qs = qs.filter(session__start_time__lte=now) | qs.filter(status=Booking.Status.CANCELLED)
 
         page = self.paginate_queryset(qs)
-        serializer = self.get_serializer(page or qs, many=True)
         if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response(serializer.data)
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return Response(self.get_serializer(qs, many=True).data)
 
     def destroy(self, request, pk=None):
+        # The router's default lookup regex accepts any non-slash segment,
+        # so `DELETE /api/bookings/abc/` reaches here with a non-numeric pk.
+        # Passing that straight to the ORM raised an unhandled ValueError
+        # (a 500 on plainly malformed input); an id that cannot exist is a
+        # 404, the same answer as an id that simply doesn't.
         try:
-            booking = services.cancel_booking(user=request.user, booking_id=pk)
+            booking_id = int(pk)
+        except (TypeError, ValueError):
+            return _error("booking_not_found", "Booking not found.", status.HTTP_404_NOT_FOUND)
+
+        try:
+            booking = services.cancel_booking(user=request.user, booking_id=booking_id)
         except Booking.DoesNotExist:
-            return Response(
-                {"error": {"code": "booking_not_found", "detail": "Booking not found."}},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return _error("booking_not_found", "Booking not found.", status.HTTP_404_NOT_FOUND)
         except services.SessionAlreadyStartedError:
-            return Response(
-                {
-                    "error": {
-                        "code": "session_already_started",
-                        "detail": "This session has already started; the booking can no longer be cancelled.",
-                    }
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+            return _error(
+                "session_already_started",
+                "This session has already started; the booking can no longer be cancelled.",
+                status.HTTP_400_BAD_REQUEST,
             )
         return Response(BookingSerializer(booking).data, status=status.HTTP_200_OK)

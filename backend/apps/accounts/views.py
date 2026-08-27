@@ -118,7 +118,12 @@ class RefreshView(APIView):
 
         try:
             old_refresh = RefreshToken(raw_token)
-            user = User.objects.get(pk=old_refresh["user_id"])
+            # `is_active` matters here specifically: DRF's JWTAuthentication
+            # already refuses an access token for a deactivated user, but
+            # this endpoint resolves the user itself, so without the filter
+            # a disabled account could keep minting fresh access tokens for
+            # as long as its refresh token lived.
+            user = User.objects.get(pk=old_refresh["user_id"], is_active=True)
         except (TokenError, User.DoesNotExist):
             response = Response(
                 {"error": {"code": "refresh_invalid", "detail": "Refresh token is invalid or expired."}},

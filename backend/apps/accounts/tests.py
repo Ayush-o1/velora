@@ -230,3 +230,50 @@ def test_logout_clears_cookie_and_blacklists_refresh_token(api_client, plain_use
 def test_logout_without_cookie_still_returns_204(api_client):
     response = api_client.post("/api/auth/logout/")
     assert response.status_code == 204
+
+
+@pytest.mark.django_db
+def test_deactivated_user_cannot_refresh(api_client, plain_user):
+    """
+    DRF's JWTAuthentication already refuses an *access* token for a
+    deactivated user, but this endpoint resolves the user itself — so
+    without an explicit `is_active` filter a disabled account could keep
+    minting fresh access tokens for the life of its refresh token.
+    """
+    refresh = RefreshToken.for_user(plain_user)
+    plain_user.is_active = False
+    plain_user.save(update_fields=["is_active"])
+
+    api_client.cookies[settings.REFRESH_COOKIE_NAME] = str(refresh)
+    response = api_client.post("/api/auth/refresh/")
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "refresh_invalid"
+
+
+@pytest.mark.django_db
+def test_profile_update_cannot_escalate_to_staff_or_change_identity(api_client, plain_user):
+    """
+    Mass-assignment probe on the one endpoint that writes to the User
+    model: role is deliberately writable (self-service creator upgrade),
+    but nothing else is.
+    """
+    token = AccessToken.for_user(plain_user)
+    response = api_client.patch(
+        "/api/auth/me/",
+        {
+            "is_staff": True,
+            "is_superuser": True,
+            "username": "hijacked",
+            "email": "attacker@example.com",
+            "github_id": "999",
+        },
+        format="json",
+        **auth_header(str(token)),
+    )
+    assert response.status_code == 200
+
+    plain_user.refresh_from_db()
+    assert plain_user.is_staff is False
+    assert plain_user.is_superuser is False
+    assert plain_user.username == "plainuser"
+    assert plain_user.email != "attacker@example.com"

@@ -14,6 +14,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Collect admin/DRF static assets into STATIC_ROOT for WhiteNoise to serve.
+# Django refuses to start with the placeholder SECRET_KEY when DEBUG=False,
+# so a throwaway key is supplied for this build step only — it is never
+# baked into the image or used at runtime.
+RUN DJANGO_SECRET_KEY=build-time-only-not-a-runtime-secret \
+    python manage.py collectstatic --noinput --clear
+
 RUN adduser --disabled-password --no-create-home velora \
     && chown -R velora:velora /app
 USER velora
