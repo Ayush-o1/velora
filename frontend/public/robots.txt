@@ -1,0 +1,9 @@
+# Velora — public catalog and session pages are crawlable.
+# Authenticated areas are client-rendered and behind auth anyway, but
+# they are listed explicitly so crawlers don't waste requests on them.
+User-agent: *
+Allow: /
+Disallow: /auth/
+Disallow: /bookings
+Disallow: /creator/
+Disallow: /profile

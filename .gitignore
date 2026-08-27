@@ -30,3 +30,7 @@ npm-debug.log*
 
 # Docker
 postgres-data/
+
+# Test / build caches
+.pytest_cache/
+frontend/tsconfig.tsbuildinfo

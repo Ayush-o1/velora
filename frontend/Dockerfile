@@ -6,6 +6,11 @@ RUN npm ci
 
 COPY . .
 
+# `public/` is optional in Next.js, but the runner stage copies it
+# unconditionally — and Git does not track empty directories, so a fresh
+# clone without this line failed the build outright at that COPY.
+RUN mkdir -p public
+
 # NEXT_PUBLIC_* values are inlined into the client bundle at build time,
 # so they must be supplied as build args (not just runtime env vars).
 ARG NEXT_PUBLIC_API_URL
