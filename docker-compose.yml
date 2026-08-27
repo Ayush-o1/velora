@@ -7,6 +7,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
+      # Named volume, not a bind mount: data survives `down`/`up` and image
+      # rebuilds, and is only destroyed by an explicit `down -v`.
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -24,6 +26,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      # Hits the real health endpoint, which itself round-trips a query to
+      # Postgres — so "healthy" means the API can actually serve, not just
+      # that a process is running.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   frontend:
     build:
@@ -34,7 +45,16 @@ services:
         NEXT_PUBLIC_GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI}
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # node:slim has no curl; the runtime's own fetch does the job.
+      test:
+        ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   nginx:
     image: nginx:1.27-alpine
@@ -44,8 +64,13 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - backend
-      - frontend
+      # Waiting for health, not just for start: Nginx resolves its upstreams
+      # at startup, and a proxy that comes up before its backends serves 502s
+      # to whoever opens the page first.
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
