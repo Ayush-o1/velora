@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api-client";
-import { Card, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { Card, Alert, PageSpinner } from "@/components/ui/Surfaces";
 
 function CallbackInner() {
   const searchParams = useSearchParams();
@@ -57,21 +57,23 @@ function CallbackInner() {
 
   if (error) {
     return (
-      <Card className="max-w-sm mx-auto text-center space-y-3">
-        <ErrorBanner message={error} />
-        <Link href="/login" className="text-sm text-brand underline">
-          Back to sign in
-        </Link>
-      </Card>
+      <div className="max-w-sm mx-auto mt-8 animate-fade-up">
+        <Card className="p-7 text-center space-y-4">
+          <Alert>{error}</Alert>
+          <Link href="/login" className="inline-block text-[14px] text-accent hover:text-accent-hover underline underline-offset-2">
+            Back to sign in
+          </Link>
+        </Card>
+      </div>
     );
   }
 
-  return <LoadingSpinner />;
+  return <PageSpinner label="Signing you in" />;
 }
 
 export default function AuthCallbackPage() {
   return (
-    <Suspense fallback={<LoadingSpinner />}>
+    <Suspense fallback={<PageSpinner label="Signing you in" />}>
       <CallbackInner />
     </Suspense>
   );

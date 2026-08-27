@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { sessionsApi } from "@/lib/api";
 import type { SessionItem } from "@/lib/types";
 import { SessionCard } from "@/components/SessionCard";
-import { EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { SessionCardSkeleton } from "@/components/ui/Skeleton";
+import { Alert, EmptyState } from "@/components/ui/Surfaces";
 import { ApiError } from "@/lib/api-client";
 
 export default function CatalogPage() {
@@ -14,7 +15,7 @@ export default function CatalogPage() {
   useEffect(() => {
     let cancelled = false;
     sessionsApi
-      .list()
+      .list({ upcoming: true })
       .then((data) => {
         if (!cancelled) setSessions(data.results);
       })
@@ -27,21 +28,41 @@ export default function CatalogPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-neutral-900">Browse sessions</h1>
-        <p className="text-neutral-500 mt-1">Live sessions hosted by creators on Velora.</p>
+    <div className="space-y-12">
+      <div className="max-w-xl animate-fade-up">
+        <p className="text-[13px] font-medium uppercase tracking-[0.08em] text-accent">Browse</p>
+        <h1 className="mt-2 font-display text-[32px] sm:text-[40px] leading-[1.1] text-ink text-balance">
+          Sessions worth clearing your calendar for.
+        </h1>
+        <p className="mt-3 text-[15px] text-ink-secondary leading-relaxed">
+          Small, live, and hosted by people who actually do the work. Book a seat, or become a
+          creator and host your own.
+        </p>
       </div>
 
-      {error && <ErrorBanner message={error} />}
-      {!error && sessions === null && <LoadingSpinner />}
-      {sessions && sessions.length === 0 && (
-        <EmptyState title="No sessions yet" description="Check back soon, or sign in as a creator to host one." />
+      {error && <Alert>{error}</Alert>}
+
+      {!error && sessions === null && (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SessionCardSkeleton key={i} />
+          ))}
+        </div>
       )}
+
+      {sessions && sessions.length === 0 && (
+        <EmptyState
+          title="No sessions yet"
+          description="Check back soon, or sign in as a creator to host the first one."
+        />
+      )}
+
       {sessions && sessions.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sessions.map((session) => (
-            <SessionCard key={session.id} session={session} />
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {sessions.map((session, i) => (
+            <div key={session.id} className="animate-fade-up" style={{ animationDelay: `${Math.min(i, 6) * 40}ms` }}>
+              <SessionCard session={session} />
+            </div>
           ))}
         </div>
       )}

@@ -7,7 +7,15 @@ import type { Booking } from "@/lib/types";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { ApiError } from "@/lib/api-client";
-import { Badge, Button, Card, EmptyState, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { Badge, Card, Alert, EmptyState, PageSpinner } from "@/components/ui/Surfaces";
+import { Button } from "@/components/ui/Button";
+import { Tabs } from "@/components/ui/Tabs";
+
+function statusBadge(booking: Booking) {
+  if (booking.status === "cancelled") return <Badge tone="error">Cancelled</Badge>;
+  if (booking.is_past) return <Badge tone="neutral">Completed</Badge>;
+  return <Badge tone="success">Upcoming</Badge>;
+}
 
 export default function BookingsPage() {
   const { status } = useRequireAuth();
@@ -40,54 +48,62 @@ export default function BookingsPage() {
     }
   };
 
-  if (status !== "authenticated") return <LoadingSpinner />;
+  if (status !== "authenticated") return <PageSpinner label="Loading" />;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-neutral-900">My bookings</h1>
+    <div className="space-y-6 animate-fade-up">
+      <h1 className="font-display text-2xl text-ink">My bookings</h1>
 
-      <div className="flex gap-2 border-b border-neutral-200">
-        {(["active", "past"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${
-              tab === t ? "border-brand text-brand" : "border-transparent text-neutral-500 hover:text-neutral-800"
-            }`}
-          >
-            {t === "active" ? "Upcoming" : "Past & cancelled"}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={[
+          { value: "active", label: "Upcoming" },
+          { value: "past", label: "Past & cancelled" },
+        ]}
+        value={tab}
+        onChange={(v) => setTab(v as "active" | "past")}
+      />
 
-      {error && <ErrorBanner message={error} />}
-      {!error && bookings === null && <LoadingSpinner />}
+      {error && <Alert>{error}</Alert>}
+      {!error && bookings === null && <PageSpinner label="Loading bookings" />}
       {bookings && bookings.length === 0 && (
         <EmptyState
           title={tab === "active" ? "No upcoming bookings" : "No past bookings yet"}
           description={tab === "active" ? "Browse the catalog to book a session." : undefined}
+          action={
+            tab === "active" ? (
+              <Link href="/">
+                <Button variant="secondary" size="sm">Browse sessions</Button>
+              </Link>
+            ) : undefined
+          }
         />
       )}
 
       <div className="space-y-3">
         {bookings?.map((booking) => (
-          <Card key={booking.id} className="flex items-center justify-between gap-4">
-            <div>
-              <Link href={`/sessions/${booking.session.id}`} className="font-medium text-neutral-900 hover:underline">
-                {booking.session.title}
-              </Link>
-              <p className="text-sm text-neutral-500">
+          <Card key={booking.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[12px] font-medium uppercase tracking-[0.06em] text-muted">
                 {formatDateTime(booking.session.start_time)} · {formatDuration(booking.session.duration_minutes)}
               </p>
-              <p className="text-sm text-neutral-500">Hosted by {booking.session.creator_username}</p>
+              <Link
+                href={`/sessions/${booking.session.id}`}
+                className="mt-1 block font-display text-[17px] text-ink hover:text-accent transition-colors duration-[var(--duration-fast)] truncate"
+              >
+                {booking.session.title}
+              </Link>
+              <p className="text-[13px] text-muted mt-0.5">Hosted by {booking.session.creator_username}</p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <Badge tone={booking.status === "cancelled" ? "red" : booking.is_past ? "neutral" : "green"}>
-                {booking.status === "cancelled" ? "Cancelled" : booking.is_past ? "Past" : "Active"}
-              </Badge>
+              {statusBadge(booking)}
               {booking.status === "active" && !booking.is_past && (
-                <Button variant="danger" onClick={() => handleCancel(booking.id)} disabled={cancellingId === booking.id}>
-                  {cancellingId === booking.id ? "Cancelling…" : "Cancel"}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleCancel(booking.id)}
+                  loading={cancellingId === booking.id}
+                >
+                  Cancel
                 </Button>
               )}
             </div>

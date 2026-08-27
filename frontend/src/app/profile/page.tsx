@@ -5,12 +5,14 @@ import { useAuth } from "@/lib/auth-context";
 import { useRequireAuth } from "@/lib/use-require-auth";
 import { ApiError } from "@/lib/api-client";
 import type { User } from "@/lib/types";
-import { Badge, Button, Card, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { Badge, Card, Alert, Avatar, PageSpinner } from "@/components/ui/Surfaces";
+import { Button } from "@/components/ui/Button";
+import { FieldWrapper, Input, Textarea } from "@/components/ui/Field";
 
 export default function ProfilePage() {
   const { user, status } = useRequireAuth();
 
-  if (status !== "authenticated" || !user) return <LoadingSpinner />;
+  if (status !== "authenticated" || !user) return <PageSpinner label="Loading profile" />;
 
   return <ProfileEditor user={user} />;
 }
@@ -54,67 +56,45 @@ function ProfileEditor({ user }: { user: User }) {
   };
 
   return (
-    <div className="max-w-lg space-y-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold text-neutral-900">Your profile</h1>
-        <Badge tone={user.role === "creator" ? "green" : "neutral"}>{user.role}</Badge>
+    <div className="max-w-lg space-y-6 animate-fade-up">
+      <div className="flex items-center gap-4">
+        <Avatar name={user.first_name || user.username} src={user.avatar_url} size={52} />
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-2xl text-ink">{user.username}</h1>
+            <Badge tone={user.role === "creator" ? "success" : "neutral"}>{user.role}</Badge>
+          </div>
+          <p className="text-[14px] text-muted">{user.email}</p>
+        </div>
       </div>
 
-      <Card className="space-y-4">
-        <div className="flex items-center gap-3">
-          {user.avatar_url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={user.avatar_url} alt="" className="h-12 w-12 rounded-full" />
-          )}
-          <div>
-            <p className="font-medium text-neutral-900">{user.username}</p>
-            <p className="text-sm text-neutral-500">{user.email}</p>
+      <Card className="p-6">
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <FieldWrapper label="First name" htmlFor="first_name">
+              <Input id="first_name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+            </FieldWrapper>
+            <FieldWrapper label="Last name" htmlFor="last_name">
+              <Input id="last_name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+            </FieldWrapper>
           </div>
-        </div>
+          <FieldWrapper label="Bio" htmlFor="bio" hint={`${bio.length}/500`}>
+            <Textarea id="bio" rows={3} maxLength={500} value={bio} onChange={(e) => setBio(e.target.value)} />
+          </FieldWrapper>
 
-        <form onSubmit={handleSave} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-sm text-neutral-700">
-              First name
-              <input
-                className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-              />
-            </label>
-            <label className="text-sm text-neutral-700">
-              Last name
-              <input
-                className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-              />
-            </label>
-          </div>
-          <label className="block text-sm text-neutral-700">
-            Bio
-            <textarea
-              className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-              rows={3}
-              maxLength={500}
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-            />
-          </label>
+          {error && <Alert>{error}</Alert>}
+          {saved && <Alert tone="success">Saved.</Alert>}
 
-          {error && <ErrorBanner message={error} />}
-          {saved && <p className="text-sm text-emerald-700">Saved.</p>}
-
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Save changes"}
+          <Button type="submit" loading={saving}>
+            Save changes
           </Button>
         </form>
       </Card>
 
       {user.role === "user" && (
-        <Card className="space-y-2">
-          <h2 className="font-medium text-neutral-900">Want to host sessions?</h2>
-          <p className="text-sm text-neutral-500">
+        <Card className="p-6 space-y-2.5">
+          <h2 className="font-display text-lg text-ink">Want to host sessions?</h2>
+          <p className="text-[14px] text-ink-secondary">
             Become a creator to create and manage your own sessions.
           </p>
           <Button variant="secondary" onClick={becomeCreator}>

@@ -1,13 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { bookingsApi, sessionsApi } from "@/lib/api";
 import type { SessionItem } from "@/lib/types";
 import { formatDateTime, formatDuration } from "@/lib/format";
-import { Badge, Button, Card, ErrorBanner, LoadingSpinner } from "@/components/ui";
+import { Avatar, Alert, Card, PageSpinner } from "@/components/ui/Surfaces";
+import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between py-2.5">
+      <span className="text-[13px] text-muted">{label}</span>
+      <span className="text-[14px] text-ink text-right">{value}</span>
+    </div>
+  );
+}
 
 export default function SessionDetailPage() {
   const params = useParams<{ id: string }>();
@@ -41,71 +52,96 @@ export default function SessionDetailPage() {
       load();
     } catch (err) {
       setBookingState("error");
-      if (err instanceof ApiError) {
-        setBookingError(err.message);
-      } else {
-        setBookingError("Could not complete booking. Please try again.");
-      }
+      setBookingError(err instanceof ApiError ? err.message : "Could not complete booking. Please try again.");
     }
   };
 
-  if (loadError) return <ErrorBanner message={loadError} />;
-  if (!session) return <LoadingSpinner />;
+  if (loadError) return <Alert>{loadError}</Alert>;
+  if (!session) return <PageSpinner label="Loading session" />;
 
   const full = session.seats_remaining <= 0;
   const isOwnSession = user?.id === session.creator.id;
-  const canBook = !session.has_started && !full && !isOwnSession;
+  const canBook = !session.has_started && !full && !isOwnSession && bookingState !== "booked";
+
+  let ctaLabel = "Book this session";
+  if (status !== "authenticated") ctaLabel = "Sign in to book";
+  else if (bookingState === "booking") ctaLabel = "Booking…";
+  else if (session.has_started) ctaLabel = "Session already started";
+  else if (full) ctaLabel = "Session full";
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <div className="flex items-start justify-between gap-3">
-          <h1 className="text-2xl font-semibold text-neutral-900">{session.title}</h1>
-          {session.has_started ? (
-            <Badge tone="neutral">Started</Badge>
-          ) : full ? (
-            <Badge tone="red">Full</Badge>
-          ) : (
-            <Badge tone="green">{session.seats_remaining} of {session.capacity} left</Badge>
+    <div className="animate-fade-up">
+      <Link href="/" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink-secondary mb-8">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M8.5 3 4.5 7l4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Browse
+      </Link>
+
+      <div className="grid lg:grid-cols-[1fr_320px] gap-10">
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium uppercase tracking-[0.06em] text-accent">
+            {formatDateTime(session.start_time)}
+          </p>
+          <h1 className="mt-2 font-display text-[30px] sm:text-[36px] leading-[1.12] text-ink text-balance">
+            {session.title}
+          </h1>
+
+          <div className="mt-5 flex items-center gap-2.5">
+            <Avatar name={session.creator.username} src={session.creator.avatar_url} size={32} />
+            <div className="text-[14px]">
+              <p className="text-ink">{session.creator.username}</p>
+              <p className="text-muted text-[13px]">Host</p>
+            </div>
+          </div>
+
+          {session.description && (
+            <div className="mt-8 pt-8 border-t border-border">
+              <h2 className="text-[13px] font-medium uppercase tracking-[0.06em] text-muted mb-3">About</h2>
+              <p className="text-[15px] leading-relaxed text-ink-secondary whitespace-pre-line">
+                {session.description}
+              </p>
+            </div>
           )}
         </div>
-        <p className="text-neutral-500 mt-1">Hosted by {session.creator.username}</p>
-      </div>
 
-      <Card className="space-y-2 text-sm text-neutral-700">
-        <p><span className="font-medium text-neutral-900">When: </span>{formatDateTime(session.start_time)} · {formatDuration(session.duration_minutes)}</p>
-        {session.location && <p><span className="font-medium text-neutral-900">Where: </span>{session.location}</p>}
-        <p><span className="font-medium text-neutral-900">Capacity: </span>{session.capacity} seats</p>
-      </Card>
+        <aside className="lg:sticky lg:top-24 h-fit">
+          <Card className="p-5">
+            <div className="divide-y divide-border">
+              <InfoRow label="When" value={formatDateTime(session.start_time)} />
+              <InfoRow label="Duration" value={formatDuration(session.duration_minutes)} />
+              {session.location && <InfoRow label="Where" value={session.location} />}
+              <InfoRow
+                label="Seats"
+                value={full ? "Full" : `${session.seats_remaining} of ${session.capacity} left`}
+              />
+            </div>
 
-      {session.description && (
-        <div>
-          <h2 className="font-medium text-neutral-900 mb-1">About this session</h2>
-          <p className="text-neutral-600 whitespace-pre-line">{session.description}</p>
-        </div>
-      )}
+            <div className="mt-5 space-y-3">
+              {isOwnSession && (
+                <p className="text-[13px] text-muted">This is your own session — creators don&apos;t book their own sessions.</p>
+              )}
 
-      <div className="space-y-3">
-        {isOwnSession && <p className="text-sm text-neutral-500">This is your own session — creators don&apos;t book their own sessions.</p>}
-        {bookingState === "booked" && (
-          <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-4 py-3">
-            You&apos;re booked in. Find it under <a href="/bookings" className="underline">My Bookings</a>.
-          </p>
-        )}
-        {bookingError && <ErrorBanner message={bookingError} />}
-        {!isOwnSession && bookingState !== "booked" && (
-          <Button onClick={handleBook} disabled={!canBook || bookingState === "booking"}>
-            {status !== "authenticated"
-              ? "Sign in to book"
-              : bookingState === "booking"
-                ? "Booking…"
-                : session.has_started
-                  ? "Session already started"
-                  : full
-                    ? "Session full"
-                    : "Book this session"}
-          </Button>
-        )}
+              {bookingState === "booked" && (
+                <Alert tone="success">
+                  You&apos;re booked in. Find it under{" "}
+                  <Link href="/bookings" className="underline underline-offset-2">
+                    My Bookings
+                  </Link>
+                  .
+                </Alert>
+              )}
+
+              {bookingError && <Alert>{bookingError}</Alert>}
+
+              {!isOwnSession && bookingState !== "booked" && (
+                <Button onClick={handleBook} disabled={!canBook} loading={bookingState === "booking"} className="w-full">
+                  {ctaLabel}
+                </Button>
+              )}
+            </div>
+          </Card>
+        </aside>
       </div>
     </div>
   );

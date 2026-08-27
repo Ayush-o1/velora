@@ -2,7 +2,9 @@
 
 import { useState, type FormEvent } from "react";
 import type { SessionItem, SessionWritePayload } from "@/lib/types";
-import { Button, ErrorBanner } from "./ui";
+import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/Surfaces";
+import { FieldWrapper, Input, Textarea } from "@/components/ui/Field";
 
 function toLocalInputValue(iso: string): string {
   const d = new Date(iso);
@@ -49,76 +51,57 @@ export function SessionForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <label className="block text-sm text-neutral-700">
-        Title
-        <input
-          required
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </label>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <FieldWrapper label="Title" htmlFor="title">
+        <Input id="title" required value={title} onChange={(e) => setTitle(e.target.value)} />
+      </FieldWrapper>
 
-      <label className="block text-sm text-neutral-700">
-        Description
-        <textarea
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-          rows={4}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </label>
+      <FieldWrapper label="Description" htmlFor="description">
+        <Textarea id="description" rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+      </FieldWrapper>
 
-      <label className="block text-sm text-neutral-700">
-        Location
-        <input
-          placeholder="Online, or an address"
-          className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-        />
-      </label>
+      <FieldWrapper label="Location" htmlFor="location" hint="Online, or a physical address">
+        <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} />
+      </FieldWrapper>
 
-      <div className="grid grid-cols-3 gap-3">
-        <label className="block text-sm text-neutral-700 col-span-3 sm:col-span-1">
-          Start time
-          <input
-            required
-            type="datetime-local"
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-          />
-        </label>
-        <label className="block text-sm text-neutral-700">
-          Duration (min)
-          <input
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-3 sm:col-span-1">
+          <FieldWrapper label="Start time" htmlFor="start_time">
+            <Input
+              id="start_time"
+              required
+              type="datetime-local"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
+          </FieldWrapper>
+        </div>
+        <FieldWrapper label="Duration (min)" htmlFor="duration">
+          <Input
+            id="duration"
             required
             type="number"
             min={1}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
             value={durationMinutes}
             onChange={(e) => setDurationMinutes(Number(e.target.value))}
           />
-        </label>
-        <label className="block text-sm text-neutral-700">
-          Capacity
-          <input
+        </FieldWrapper>
+        <FieldWrapper label="Capacity" htmlFor="capacity">
+          <Input
+            id="capacity"
             required
             type="number"
             min={1}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
             value={capacity}
             onChange={(e) => setCapacity(Number(e.target.value))}
           />
-        </label>
+        </FieldWrapper>
       </div>
 
-      {error && <ErrorBanner message={error} />}
+      {error && <Alert>{error}</Alert>}
 
-      <Button type="submit" disabled={submitting}>
-        {submitting ? "Saving…" : submitLabel}
+      <Button type="submit" loading={submitting}>
+        {submitLabel}
       </Button>
     </form>
   );

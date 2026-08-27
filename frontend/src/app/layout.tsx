@@ -1,37 +1,44 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { Nav } from "@/components/Nav";
+import { Footer } from "@/components/Footer";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
-  title: "Velora — Sessions Marketplace",
-  description: "Browse, book, and host live sessions.",
+  title: "Velora",
+  description: "A considered place to host and book live sessions.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col bg-neutral-50 text-neutral-900">
+    <html lang="en" className={`${fraunces.variable} ${inter.variable} h-full`}>
+      <body className="min-h-full flex flex-col bg-bg text-ink antialiased">
         <AuthProvider>
+          <a
+            href="#main"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-accent focus:px-4 focus:py-2 focus:text-on-accent"
+          >
+            Skip to content
+          </a>
           <Nav />
-          <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 sm:px-6">{children}</main>
-          <footer className="border-t border-neutral-200 py-6 text-center text-sm text-neutral-500">
-            Velora — a compact sessions marketplace
-          </footer>
+          <main id="main" className="flex-1 w-full max-w-[1180px] mx-auto px-5 py-10 sm:px-8">
+            {children}
+          </main>
+          <Footer />
         </AuthProvider>
       </body>
     </html>
