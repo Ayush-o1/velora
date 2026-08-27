@@ -192,10 +192,16 @@ rejected alternatives are in [DECISIONS.md](DECISIONS.md); summary:
 ```bash
 cd backend
 source .venv/bin/activate   # or: pip install -r requirements.txt into your own venv
-python manage.py test       # or: pytest
+pytest
 ```
 
-Or inside Docker: `docker compose exec backend python manage.py test`.
+Or inside Docker: `docker compose exec backend python -m pytest`.
+
+(Most tests are pytest-style and won't be picked up by plain
+`python manage.py test`, which only discovers `TestCase`/
+`TransactionTestCase` subclasses — that command alone only runs the 4
+concurrency tests in `test_concurrency.py`. Use `pytest` for the full
+36.)
 
 **36 backend tests**, covering:
 - Auth: missing/invalid/expired token → 401; profile update; role
