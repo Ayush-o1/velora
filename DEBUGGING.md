@@ -5,6 +5,11 @@ project's own test suite and lint tooling — not invented after the
 fact. Each was caught during the "implement → test → inspect → fix →
 re-test" loop before being committed.
 
+Issues 1–3 were found while building the feature set. Issues 4–6 were
+found during a later, deliberately adversarial audit pass over the
+already-"complete" codebase — a second pass that assumed nothing and
+re-verified everything, rather than trusting the first pass's report.
+
 ---
 
 ## 1. Creating a session crashed with `KeyError: 'id'`
@@ -136,3 +141,117 @@ build` all pass clean; see
 [`frontend/src/app/profile/page.tsx`](frontend/src/app/profile/page.tsx)
 and
 [`frontend/src/app/auth/callback/page.tsx`](frontend/src/app/auth/callback/page.tsx).
+
+---
+
+## 4. Re-booking your own only seat returned "session full" instead of "already booked"
+
+**Symptom.** Found while manually tracing the booking logic during the
+audit pass, then confirmed with a script: on a capacity-1 session, if
+the same user who already holds the seat submits a second booking
+request, the API returned `409 session_full` instead of `409
+duplicate_booking`. The booking invariant itself still held (no second
+booking was ever created either way), but the error was misleading —
+telling a user "this is full" when the real, more useful answer is
+"you're already in."
+
+**Diagnosis.** `create_booking()` checked capacity before checking
+whether the caller already had an active booking:
+```python
+active_count = session.bookings.filter(status=ACTIVE).count()
+if active_count >= session.capacity:
+    raise SessionFullError            # ran first
+if Booking.objects.filter(user=user, session=session, status=ACTIVE).exists():
+    raise DuplicateBookingError       # never reached in this case
+```
+On a capacity-1 session where the caller is the existing booking,
+`active_count` (1) already `>= capacity` (1) before the duplicate check
+ever ran.
+
+**Root cause.** The two checks were ordered by how they were written,
+not by specificity — capacity is a session-wide fact, duplicate-booking
+is a fact about *this specific caller*, and the more specific condition
+should be evaluated first when both are true simultaneously.
+
+**Fix.** Reordered the checks so the duplicate-booking check runs
+before the capacity check. See
+[`backend/apps/bookings/services.py`](backend/apps/bookings/services.py).
+
+**Verification.** Added a unit test, an API test, and strengthened the
+existing same-user concurrent-race test to use capacity=1 specifically
+(it previously used capacity=5, which never exercised this path).
+Confirmed all three are meaningful by reverting the fix and watching
+all three fail with the old, misleading `session_full` — then restored
+the fix and reran the full suite (38/38 at that point) green.
+
+---
+
+## 5. A booking could still be cancelled after its session had already started
+
+**Symptom.** `DELETE /api/bookings/:id/` succeeded (200, status
+`"cancelled"`) even when the booking's session start time was in the
+past — confirmed directly against a fresh session/booking created via
+the Django shell.
+
+**Diagnosis.** `cancel_booking()` only checked the booking's own
+`status` (must be `ACTIVE` to cancel); it never looked at the session's
+`start_time` at all. The frontend hides the "Cancel" button once a
+booking is past (`!booking.is_past`), but that's a UI convenience, not
+enforcement — a direct API call sailed straight through.
+
+**Root cause.** An unexamined asymmetry: `create_booking()` has always
+rejected booking an already-started session, but the equivalent
+protection was never added to the cancellation path when it was
+written, and nothing in the test suite exercised cancelling a
+started-session booking to catch the gap.
+
+**Fix.** Added the same `start_time <= now()` check to
+`cancel_booking()`, reusing the existing `SessionAlreadyStartedError`
+and wiring a matching `400` response in the view. See
+[`backend/apps/bookings/services.py`](backend/apps/bookings/services.py)
+and
+[`backend/apps/bookings/views.py`](backend/apps/bookings/views.py).
+
+**Verification.** Added a unit test and an API test; reverted the fix
+and confirmed both fail (200 instead of 400) against the old behavior,
+restored it, reran the full suite (40/40 at that point) green.
+
+---
+
+## 6. The uniform error envelope leaked `"http404"` as an error code
+
+**Symptom.** `GET /api/sessions/999999/` (a session id that doesn't
+exist) returned `{"error": {"code": "http404", "detail": "No Session
+matches the given query."}}` — a code value that doesn't match any of
+the project's other error codes (`not_found` would be the expected,
+consistent one), because it's literally the lowercased Python class
+name of the wrong exception object.
+
+**Diagnosis.** The shared exception handler
+(`apps/core/exceptions.py`) derives the response's `code` from
+`getattr(exc, "default_code", exc.__class__.__name__.lower())`. DRF's
+own `rest_framework.views.exception_handler` converts a raw Django
+`Http404` (which is what `get_object_or_404`-style generic views
+actually raise) into DRF's typed `NotFound` exception internally — but
+that conversion happens on a variable local to DRF's own function and
+is never exposed back to a wrapping handler. This project's handler was
+still looking at the original, untyped `Http404`, which has no
+`default_code` attribute, so the fallback kicked in and returned the
+class name itself.
+
+**Root cause.** Wrapping DRF's `exception_handler()` without
+replicating the specific `Http404`/Django-`PermissionDenied` →
+typed-exception conversion it performs internally before extracting
+fields from the exception object.
+
+**Fix.** Mirrored that conversion at the top of
+`velora_exception_handler()` before reading `default_code`. See
+[`backend/apps/core/exceptions.py`](backend/apps/core/exceptions.py).
+
+**Verification.** Added a regression test asserting the code is
+`not_found` for a nonexistent session id; reverted the fix and
+confirmed the test reproduces the exact `"http404"` string, restored
+it, reran the full suite (41/41) green. Also independently re-curled
+several other error paths (401, 403, 405) to confirm they were never
+affected — only the `Http404`/generic-`PermissionDenied` conversion
+path was broken.

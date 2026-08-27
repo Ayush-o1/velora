@@ -118,6 +118,43 @@ genuinely required my action rather than the agent's.
 
 ---
 
+## Prompt 3 — independent final audit, "do not trust the previous report"
+
+Before treating the project as submission-ready, I gave the agent a
+separate, deliberately adversarial instruction: re-audit the entire
+repository from scratch as a skeptical senior engineer, without relying
+on its own earlier "complete" report, reasoning through the concurrency
+mechanism line-by-line, attempting authorization bypasses like a
+malicious API client, and re-running every verification claim rather
+than citing the earlier session's results.
+
+**What was used.** The agent re-read the core source files fresh (not
+from its own summary), re-traced the `select_for_update()` locking
+sequence question-by-question (which row, when locked, when read, when
+committed, what a second transaction observes), and re-ran the
+concurrency proof by deliberately breaking the lock again rather than
+citing the earlier run.
+
+**What this pass found and fixed** (the agent's own prior work, not a
+strawman): three real, previously-undetected defects — a booking
+check-ordering bug that returned a misleading error code, a missing
+authorization check on booking cancellation, and a bug in the shared
+error-handling code itself that leaked an internal Python class name as
+an API error code. All three are detailed with full root-cause analysis
+in DEBUGGING.md #4–6. None of these were caught by the first pass's
+test suite, which is precisely why a second, skeptical pass mattered —
+"the tests pass" is not the same claim as "there are no more bugs."
+
+**How it was verified.** For each of the three fixes, the same
+discipline as the first pass: revert the fix, confirm the relevant
+test(s) actually fail against the old behavior, restore the fix, rerun
+the full suite. Also independently attacked the live Docker deployment
+directly with `curl` and hand-crafted JWTs — cross-creator edits,
+spoofed `user`/`is_staff` fields in request bodies — rather than only
+trusting the pytest suite's version of the same claims.
+
+---
+
 ## What AI got wrong / what I corrected
 
 Concrete, from this project (full detail in DEBUGGING.md):
@@ -143,7 +180,48 @@ Concrete, from this project (full detail in DEBUGGING.md):
    using `token.set_exp()` directly on the token instance instead —
    see DEBUGGING.md #2.
 
-Both were caught by running the test suite the agent itself had just
-written, not by inspection alone — which is the point of the
-"implement → test → inspect → fix → re-test" loop the brief required
-rather than a "generate and assume" workflow.
+3. **Checks ordered by how they were written, not by specificity.** The
+   agent's original `create_booking()` checked session capacity before
+   checking whether the caller specifically already held the seat, so a
+   user re-submitting their own only booking on a capacity-1 session
+   got told the session was "full" rather than that they were already
+   booked — a real inconsistency the first pass's own test suite never
+   exercised, because its duplicate-booking test used capacity=5 (where
+   the ordering doesn't matter) rather than a tight capacity. Found by
+   deliberately re-tracing the function's logic against the exact
+   scenario in the assignment brief (capacity=1) during the audit pass,
+   not by a failing test — the test was written *after* spotting it by
+   inspection, then confirmed to fail against the old code before being
+   trusted. See DEBUGGING.md #4.
+
+4. **An enforcement rule existed on one side of an operation but not
+   its mirror.** `create_booking()` had always rejected booking an
+   already-started session; `cancel_booking()`, added later, never got
+   the equivalent check, so a booking could still be cancelled after
+   the fact via a direct API call — the frontend hid the button, which
+   masked the gap in every manual click-through the first pass did.
+   Found by deliberately asking "does the create-side restriction have
+   a mirror on the cancel side?" rather than assuming symmetry existed
+   because it seemed like it should. See DEBUGGING.md #5.
+
+5. **The AI's own error-handling code had a bug in it.** The shared
+   exception handler the agent wrote to give the API a consistent
+   `{"error": {"code", "detail"}}` shape had a subtle flaw: it assumed
+   `exc.__class__.__name__.lower()` was a safe fallback for extracting
+   an error code, without accounting for the fact that DRF silently
+   upgrades a raw `Http404` into its own typed exception *internally*,
+   in a way invisible to a wrapping handler. The result was a generic
+   404 leaking `"http404"` — the literal Python class name — as the API
+   error code, defeating the handler's own stated purpose. This is
+   worth calling out specifically because it's a bug in code meant to
+   make errors *more* legible, found only because the audit pass
+   distrusted even the plumbing that was supposedly done and tested.
+   See DEBUGGING.md #6.
+
+All five were caught by actually running something — a test, a live
+`curl` against the running stack, a deliberate revert-and-rerun — not
+by inspection or by trusting an earlier pass's conclusion. That
+distinction is the actual point of the "implement → test → inspect →
+fix → re-test" loop the brief required, rather than a "generate and
+assume" workflow, and it's why a second, skeptical audit pass over
+already-"working" code was worth doing at all.
