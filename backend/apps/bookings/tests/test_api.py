@@ -41,6 +41,17 @@ def test_book_session_duplicate_returns_409(api_client, plain_user, make_session
 
 
 @pytest.mark.django_db
+def test_rebooking_own_only_seat_returns_duplicate_not_full(api_client, plain_user, make_session):
+    session = make_session(capacity=1)
+    api_client.post("/api/bookings/", {"session": session.id}, format="json", **auth_header(plain_user))
+    response = api_client.post(
+        "/api/bookings/", {"session": session.id}, format="json", **auth_header(plain_user)
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "duplicate_booking"
+
+
+@pytest.mark.django_db
 def test_book_full_session_returns_409(api_client, plain_user, make_user, make_session):
     session = make_session(capacity=1)
     api_client.post("/api/bookings/", {"session": session.id}, format="json", **auth_header(plain_user))

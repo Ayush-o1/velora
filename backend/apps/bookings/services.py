@@ -74,14 +74,19 @@ def create_booking(*, user, session_id: int) -> Booking:
     if session.start_time <= timezone.now():
         raise SessionAlreadyStartedError
 
-    active_count = session.bookings.filter(status=Booking.Status.ACTIVE).count()
-    if active_count >= session.capacity:
-        raise SessionFullError
-
+    # Checked before capacity deliberately: if this user is themselves the
+    # reason the session reads as full (they already hold the seat), the
+    # correct, specific answer is "you're already booked", not "full" —
+    # otherwise a user re-submitting their own booking on a capacity-1
+    # session would be told it's full rather than that they're already in.
     if Booking.objects.filter(
         user=user, session=session, status=Booking.Status.ACTIVE
     ).exists():
         raise DuplicateBookingError
+
+    active_count = session.bookings.filter(status=Booking.Status.ACTIVE).count()
+    if active_count >= session.capacity:
+        raise SessionFullError
 
     try:
         with transaction.atomic():

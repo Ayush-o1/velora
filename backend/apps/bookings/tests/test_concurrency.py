@@ -128,16 +128,24 @@ class ConcurrentBookingRaceTest(TransactionTestCase):
             assert active_count == 1, f"trial {trial} failed: statuses={results}"
 
     def test_same_user_double_click_race_never_creates_two_active_bookings(self):
-        """Same user firing the booking request twice at once must not double-book."""
+        """
+        Same user firing the booking request twice at once must not
+        double-book. Deliberately capacity=1 (not some larger number):
+        this is the exact scenario where the checks must be ordered
+        correctly, since the user racing against themselves is also the
+        entire reason the session would read as "full" — the loser
+        should get "duplicate_booking", never "session_full".
+        """
         session = Session.objects.create(
             creator=self.creator,
             title="Double-click session",
             start_time=timezone.now() + timedelta(hours=1),
             duration_minutes=30,
-            capacity=5,
+            capacity=1,
         )
         user = self.users[0]
         results = [None, None]
+        bodies = [None, None]
         barrier = threading.Barrier(2)
 
         def attempt(index):
@@ -147,6 +155,7 @@ class ConcurrentBookingRaceTest(TransactionTestCase):
                 barrier.wait(timeout=5)
                 response = client.post("/api/bookings/", {"session": session.id}, format="json")
                 results[index] = response.status_code
+                bodies[index] = response.json()
             finally:
                 connection.close()
 
@@ -157,5 +166,8 @@ class ConcurrentBookingRaceTest(TransactionTestCase):
             t.join(timeout=10)
 
         assert sorted(results) == [201, 409], f"statuses={results}"
+        loser_body = bodies[results.index(409)]
+        assert loser_body["error"]["code"] == "duplicate_booking", loser_body
+
         active_count = Booking.objects.filter(session=session, user=user, status=Booking.Status.ACTIVE).count()
         assert active_count == 1

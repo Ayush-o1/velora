@@ -44,6 +44,24 @@ def test_create_booking_rejects_when_session_full(plain_user, make_user, make_se
 
 
 @pytest.mark.django_db
+def test_rebooking_own_only_seat_raises_duplicate_not_full(plain_user, make_session):
+    """
+    Regression test: on a capacity-1 session, if the same user who holds
+    the only seat submits a second booking, the correct, specific error
+    is "you're already booked" (DuplicateBookingError) — not "the
+    session is full" (SessionFullError), even though they happen to be
+    the reason it reads as full. Found during the final audit: the
+    checks were originally ordered capacity-first, which raised the
+    less accurate SessionFullError here.
+    """
+    session = make_session(capacity=1)
+    services.create_booking(user=plain_user, session_id=session.id)
+    with pytest.raises(services.DuplicateBookingError):
+        services.create_booking(user=plain_user, session_id=session.id)
+    assert Booking.objects.filter(session=session, status=Booking.Status.ACTIVE).count() == 1
+
+
+@pytest.mark.django_db
 def test_create_booking_rejects_already_started_session(plain_user, creator):
     from apps.catalog.models import Session
 
