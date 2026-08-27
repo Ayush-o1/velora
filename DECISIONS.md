@@ -164,3 +164,86 @@ up as a Nginx-proxied error rather than a distinctly different failure
 mode — acceptable for a single reverse proxy fronting two services at
 this scale, but worth knowing if the two were ever split onto
 different hosts.
+
+---
+
+## 4. Visual identity: a deliberate typography + color system, not a default template
+
+**Problem.** The brief explicitly asked for a frontend that reads as
+"designed for Velora," not as a default Tailwind/shadcn-style admin
+template — blue-or-purple gradient SaaS, or black-and-neon "tech,"
+being the two most common defaults. That's a real design decision with
+trade-offs, not just "make it look nice."
+
+**Options considered.**
+- **A default component-library look** (Inter everywhere, blue accent,
+  `rounded-xl` cards, soft drop shadows) — fast to build, immediately
+  recognizable as "generic AI-generated dashboard," and the brief
+  explicitly asked to avoid exactly this.
+- **A dark, "premium tech" theme** (near-black background, a single
+  saturated accent, heavy glow/shadow) — currently the other extremely
+  common default; risks reading as generic in the opposite direction
+  (crypto/dev-tool coded) rather than as calm and human, which is the
+  brand personality the product actually wants (a marketplace for
+  people teaching people, not a trading terminal).
+- **A warm, editorial system**: a serif display face (Fraunces) carrying
+  all headline personality, paired with a quiet sans (Inter) that only
+  ever does UI/body text; a warm paper background with a single
+  restrained pine-green accent instead of blue/purple. Chosen.
+
+**Why this is the right split.** The most common tell of an
+AI-generated interface isn't any single color or font — it's Inter (or
+a similar geometric sans) carrying *everything*, including huge display
+headlines, with no other typographic voice. Giving headlines a distinct
+serif face with real character, and keeping the sans strictly to
+UI/body text, is what makes the two `<h1>`s on the catalog and session
+detail pages read as "a considered product" rather than "a
+component-library default" — even though Inter itself is a perfectly
+ordinary, safe choice for body copy.
+
+**Trade-off, and a mistake this caught.** A distinctive palette means
+every color pairing has to be checked for contrast by hand rather than
+inherited from a library that's already done it — and one pairing
+didn't clear WCAG AA on the first pass: `--color-muted` (used for card
+metadata at 13px) measured ~3.5:1 against the background, below the
+4.5:1 minimum for normal-sized text. Caught by actually computing
+contrast ratios for the palette rather than eyeballing it, and darkened
+to ~5.3:1. See DEBUGGING.md #8.
+
+---
+
+## 5. Native `<dialog>` instead of a modal library
+
+**Problem.** The creator dashboard's delete-session flow used a native
+`window.confirm()` — functional, but it looks like a browser default,
+not part of the product, and it's the kind of "obviously unfinished"
+detail the brief specifically called out to fix.
+
+**Options considered.**
+- **A headless UI library** (Radix Dialog, Headless UI) for proper
+  focus-trapping and accessibility. The standard choice, but it's a new
+  dependency for something the platform can now do natively, on a
+  project that currently has zero UI dependencies beyond Next/React
+  itself.
+- **A hand-rolled `<div>`-based modal** with manual focus trapping,
+  `Escape` handling, and scroll-locking. Correct if done carefully, but
+  reimplementing genuinely fiddly accessibility behavior (focus trap
+  edge cases, restoring focus to the trigger on close) from scratch is
+  exactly the kind of "hand-rolled a11y bug waiting to happen" this
+  project has otherwise tried to avoid.
+- **The native `<dialog>` element** with `.showModal()`. Chosen.
+
+**Why this is the right choice here.** `<dialog>` gives focus trapping,
+`Escape`-to-close, a real top-layer stacking context, and automatic
+focus restoration to whatever triggered it, for free, in every evergreen
+browser — no dependency, no hand-rolled focus-trap logic to get subtly
+wrong. `::backdrop` styling covers the scrim; click-outside-to-close is
+the one behavior it doesn't provide natively and needed a few lines
+(checking `event.target === dialogRef.current`).
+
+**Trade-off.** Less animation/transition control than a library offers
+(entrance/exit choreography on `<dialog>` is still a rougher edge of
+the platform than a library's), and no built-in portal management —
+acceptable for a single confirmation dialog in this scope; would be
+worth revisiting if the product grew several different dialog types
+with more elaborate motion.

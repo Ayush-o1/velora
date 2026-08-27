@@ -155,6 +155,56 @@ trusting the pytest suite's version of the same claims.
 
 ---
 
+## Prompt 4 — frontend redesign for visual/product quality
+
+With the backend, infrastructure, and correctness work verified, I gave
+the agent a separate, detailed brief to take the (functionally complete
+but visually generic) frontend and rebuild it with a real, deliberate
+design identity — explicitly not a "prettier colors and more shadows"
+pass, and explicitly not something that reads as an AI-templated
+dashboard. The brief specified a phased design process (audit → define
+identity → rebuild systematically → verify in a real browser at
+multiple viewports → protect existing functionality throughout) rather
+than "make it look nicer."
+
+**What was used.** The agent defined a specific visual identity before
+touching any component (Fraunces for display type, Inter kept strictly
+to UI/body text, a warm paper-and-pine-green palette instead of default
+blue/purple or black/neon) and rebuilt the design-token layer, a proper
+component system (`Button`, `Card`, `Badge`, `Dialog`, `Tabs`, form
+fields), and every page on top of it — deliberately avoiding new
+dependencies (the native `<dialog>` element instead of a modal library;
+see DECISIONS.md #5) so the bundle stayed lean (704KB of client JS,
+unchanged dependency count).
+
+**What was changed / rejected from the agent's own first-pass work:**
+- The agent's first implementation of the mobile nav closed the menu
+  via a `useEffect` keyed on the route (`pathname`) — the same
+  "adjusting state via an effect" anti-pattern flagged earlier in this
+  project (see item 3 below and DEBUGGING.md #3), caught again
+  immediately by the same lint rule. Fixed by closing the menu directly
+  in each link's `onClick` instead of syncing it from route changes.
+- The agent's first-pass session/booking card layout
+  (`flex items-center justify-between`, unconditional) looked fine at
+  desktop width and was never actually checked at mobile width before
+  being accepted. Caught by screenshotting at 390px specifically,
+  fixed with `flex-col sm:flex-row`. See DEBUGGING.md #8b.
+- I rejected the agent's first color palette on inspection alone being
+  "good enough" — required computing actual WCAG contrast ratios for
+  every token pairing rather than trusting a visually-plausible palette,
+  which is what caught the `--color-muted` failure. See DEBUGGING.md #8a.
+
+**How it was verified.** `eslint`/`tsc`/`next build` clean throughout;
+every rebuilt page driven with a real, authenticated headless-browser
+session (cookie-injected JWT, matching the approach used for backend
+verification) at both desktop and 390px mobile viewports, screenshotted
+and actually inspected, not just "it compiled"; the full backend test
+suite (41/41) reconfirmed untouched; a fresh `docker compose down -v &&
+up --build` cycle confirmed the production build renders identically to
+dev through Nginx with zero console errors.
+
+---
+
 ## What AI got wrong / what I corrected
 
 Concrete, from this project (full detail in DEBUGGING.md):
@@ -225,3 +275,30 @@ distinction is the actual point of the "implement → test → inspect →
 fix → re-test" loop the brief required, rather than a "generate and
 assume" workflow, and it's why a second, skeptical audit pass over
 already-"working" code was worth doing at all.
+
+6. **A frontend race condition the agent's own auth code introduced and
+   then found by actually using the app, not by reading the code.** The
+   silent-refresh-on-mount call had no protection against being invoked
+   twice concurrently — invisible from reading `AuthProvider` in
+   isolation, since it looks like an ordinary one-shot effect. It only
+   surfaced when the agent drove the redesigned UI with a real
+   authenticated session and hit an unexpected logout, then went
+   looking for why instead of dismissing it as a one-off test-script
+   fluke — the server log's duplicated `POST /api/auth/refresh/` calls
+   were the actual evidence, not a guess. See DEBUGGING.md #7.
+
+7. **Accepted a plausible-looking layout without checking it at the
+   viewport that would break it.** The agent's card-row layout for the
+   dashboard and bookings list was written once, glanced at on a
+   1440px screenshot, and treated as done. It broke specifically at
+   mobile width, which nothing in that first pass had actually
+   rendered. See DEBUGGING.md #8b.
+
+The common thread across all seven: every one of these was invisible
+from reading the code and only became visible by running it — the test
+suite, a live request, a screenshot at the viewport that mattered, a
+computed contrast ratio instead of an eyeballed one. That's the
+practical argument for the "implement → test → inspect → fix → re-test"
+loop over "generate and assume," repeated across three separate passes
+on this project (initial build, audit, redesign) rather than just the
+first one.

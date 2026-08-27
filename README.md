@@ -1,11 +1,13 @@
 # Velora
 
 A compact sessions marketplace: creators host live sessions, users
-browse and book them. Built as a full-stack candidate assignment —
-correctness and defensible engineering decisions over visual polish.
+browse and book them. Built as a full-stack candidate assignment,
+prioritizing correctness and defensible engineering decisions — with a
+frontend deliberately designed rather than left at framework defaults
+(see [Design](#design) below).
 
 - **Backend:** Django 5 + Django REST Framework, PostgreSQL 16
-- **Frontend:** Next.js 16 (App Router, client-side, TypeScript, Tailwind)
+- **Frontend:** Next.js 16 (App Router, client-side, TypeScript, Tailwind v4)
 - **Auth:** GitHub OAuth → backend-issued JWT access/refresh tokens
 - **Infra:** Docker Compose (Nginx + frontend + backend + Postgres)
 
@@ -50,6 +52,26 @@ plain `SameSite=Lax` cookie (see [DECISIONS.md](DECISIONS.md) for why).
 login + OAuth callback, profile, booking history, creator dashboard +
 session CRUD forms. `src/lib/auth-context.tsx` and `api-client.ts` hold
 the auth/token machinery; every other page is a thin consumer of it.
+`src/components/ui/` holds the shared design-system primitives (`Button`,
+`Card`, `Dialog`, `Tabs`, form fields) every page is built from.
+
+---
+
+## Design
+
+Deliberately not a default component-library look. Fraunces (serif)
+carries all display/headline type; Inter stays confined to UI and body
+text — the combination is what keeps a warm, editorial identity from
+reading as "just Inter with a gradient." Warm paper background, a
+single restrained pine-green accent instead of default blue/purple,
+tokens defined once in `globals.css` and consumed everywhere via
+Tailwind's `@theme`. No UI dependencies were added — the delete
+confirmation dialog uses the native `<dialog>` element rather than a
+modal library, motion respects `prefers-reduced-motion`, and every
+interactive element has a visible focus state. Full reasoning for both
+the identity choice and the native-dialog decision is in
+[DECISIONS.md](DECISIONS.md) #4–5, including a color-contrast bug the
+palette shipped with initially and how it was caught (DEBUGGING.md #8a).
 
 ---
 
@@ -289,3 +311,9 @@ untouched, data still intact). Data is only lost with an explicit
 - Explicit handling for a creator lowering `capacity` below the current
   active-booking count (surface a warning rather than silently allowing
   it).
+- Automated visual regression coverage for the design system (the
+  responsive/contrast/functional passes described in DEBUGGING.md #7–8
+  were done manually with a real browser; a repeatable Playwright suite
+  would catch a regression the next time a component changes).
+- Catalog search/filter by date, location, or creator — the design
+  already has room for it above the grid, but it wasn't in scope here.

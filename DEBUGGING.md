@@ -9,6 +9,9 @@ Issues 1–3 were found while building the feature set. Issues 4–6 were
 found during a later, deliberately adversarial audit pass over the
 already-"complete" codebase — a second pass that assumed nothing and
 re-verified everything, rather than trusting the first pass's report.
+Issues 7–8 were found during a subsequent frontend redesign pass, while
+actually driving the rebuilt UI with a real, authenticated browser
+session rather than only checking it compiled.
 
 ---
 
@@ -255,3 +258,84 @@ it, reran the full suite (41/41) green. Also independently re-curled
 several other error paths (401, 403, 405) to confirm they were never
 affected — only the `Http404`/generic-`PermissionDenied` conversion
 path was broken.
+
+---
+
+## 7. A losing refresh request could clear the winning one's cookie
+
+**Symptom.** Driving the redesigned UI with a real authenticated
+browser session (via Playwright, cookie injected to simulate a logged-in
+user), navigating from the session detail page to `/bookings` bounced
+back to `/login` — even though the user had a valid session moments
+earlier. The Django dev server's request log showed the tell: every
+single `POST /api/auth/refresh/` was firing **twice** in a row, and the
+second of the pair was a `401`.
+
+**Diagnosis.** `AuthProvider`'s mount effect calls `refreshSession()`
+once to silently restore the session on page load. In dev mode, Next.js
+runs React in Strict Mode, which deliberately double-invokes effects on
+mount to help surface exactly this class of bug — so two refresh
+requests fired back-to-back, both reading the *same* not-yet-rotated
+refresh cookie from the browser. The backend rotates the refresh token
+on every use and blacklists the old one (by design — see DECISIONS.md
+#2). The first request's response rotated and blacklisted the cookie;
+the second request, still holding the now-blacklisted old value, got a
+`401` — and the `RefreshView`'s 401 path calls `_clear_refresh_cookie()`,
+deleting the cookie outright. Depending on which response the browser
+applied last, that clear could land *after* the first request's valid
+new cookie, silently logging the user out immediately after logging
+them in.
+
+**Root cause.** `refreshSession()` had no protection against being
+called twice concurrently from the same tab. Strict Mode's double
+mount-effect is the trigger that surfaced it here, but the underlying
+race isn't Strict-Mode-specific — rotation-plus-blacklist means *any*
+two near-simultaneous refresh calls sharing one stale cookie will
+produce exactly this "loser clears the winner's cookie" outcome,
+including plausible real-world triggers this project doesn't have
+automated coverage for (a slow network causing a retry, more than one
+component's 401-retry path firing close together).
+
+**Fix.** De-duplicated `refreshSession()` with a single shared in-flight
+promise: if a refresh is already in progress when another caller asks
+for one, they all get the same result instead of firing a second
+request. See
+[`frontend/src/lib/api-client.ts`](frontend/src/lib/api-client.ts).
+
+**Verification.** Confirmed via the Django dev server's request log
+before and after: two `POST /api/auth/refresh/` calls (200 then 401)
+per page load before the fix, exactly one (200) after. Re-ran the
+Playwright flow that originally surfaced it — session detail → bookings
+→ profile, three consecutive navigations — and the user stayed
+authenticated throughout. This is a frontend-only fix; it doesn't touch
+`RefreshView`'s rotation/blacklist behavior, which is correct as
+designed (see DECISIONS.md #2) — the bug was two callers sharing one
+stale cookie, not the rotation policy itself.
+
+---
+
+## 8. Two visual-QA findings from actually looking at the rebuilt UI
+
+Grouped together since both were caught the same way — by rendering the
+redesigned pages and inspecting them, not by assuming a plausible-looking
+component was correct — and both were one-line fixes once found.
+
+**8a. `--color-muted` failed WCAG AA contrast.** Computing the actual
+contrast ratio for the new warm palette (rather than eyeballing it)
+showed `--color-muted` (used for card metadata at 13px) at ~3.5:1
+against the background — below the 4.5:1 minimum for normal-sized text.
+Darkened from `#8a8375` to `#6e6659` (~5.3:1). See DECISIONS.md #4.
+
+**8b. Dashboard/booking list rows broke on mobile.** `Card`s in the
+creator dashboard and bookings list used `flex items-center
+justify-between` unconditionally. At desktop widths that's fine; at
+390px, a two- or three-line wrapped title pushed the action buttons
+(Edit/Delete, or the status badge/Cancel button) into an awkward
+squeeze beside it instead of a clean stack. Caught by screenshotting
+every reworked page at a 390px viewport, not by assuming a flex layout
+that looked fine on desktop would degrade gracefully. Fixed with
+`flex-col sm:flex-row` so the action row drops below the content on
+narrow screens. See
+[`frontend/src/app/creator/dashboard/page.tsx`](frontend/src/app/creator/dashboard/page.tsx)
+and
+[`frontend/src/app/bookings/page.tsx`](frontend/src/app/bookings/page.tsx).
