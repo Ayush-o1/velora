@@ -40,14 +40,36 @@ async function parseErrorBody(res: Response): Promise<{ code: string; detail: st
  * Calls the refresh endpoint directly (cookie-based, no Authorization
  * header needed). Used both for the silent refresh on app load and as
  * the retry path when a request comes back 401.
+ *
+ * De-duplicated on purpose: the refresh cookie rotates on every use and
+ * the old one is blacklisted server-side, so two refresh calls firing
+ * close together (React Strict Mode's double-invoked mount effect in
+ * dev; in principle also a slow network plus more than one component
+ * hitting a 401 at once) race for the same not-yet-rotated cookie —
+ * whichever request loses gets a 401 and clears the cookie the winner
+ * just set, silently logging the user out. Sharing one in-flight
+ * promise means concurrent callers within this tab get the same result
+ * instead of firing a second request that can undo the first's.
  */
+let inFlightRefresh: Promise<{ access: string; user: unknown } | null> | null = null;
+
 export async function refreshSession(): Promise<{ access: string; user: unknown } | null> {
-  const res = await fetch(`${API_BASE}/api/auth/refresh/`, {
-    method: "POST",
-    credentials: "include",
-  });
-  if (!res.ok) return null;
-  return res.json();
+  if (inFlightRefresh) return inFlightRefresh;
+
+  inFlightRefresh = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/refresh/`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) return null;
+      return res.json();
+    } finally {
+      inFlightRefresh = null;
+    }
+  })();
+
+  return inFlightRefresh;
 }
 
 interface ApiFetchOptions extends Omit<RequestInit, "body"> {
