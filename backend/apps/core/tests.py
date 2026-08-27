@@ -41,3 +41,23 @@ def test_validation_errors_are_flattened_into_a_readable_sentence(api_client, cr
     assert isinstance(error["detail"], str)
     assert "{" not in error["detail"]
     assert set(error["fields"]) >= {"title", "start_time", "capacity"}
+
+
+@pytest.mark.django_db
+def test_unknown_api_path_returns_json_not_html(api_client):
+    """
+    An unmatched /api/ route fell through to Django's own 404 handler,
+    which answers an API client with an HTML error page — breaking the
+    envelope every other endpoint honours.
+    """
+    response = api_client.get("/api/no-such-endpoint/")
+    assert response.status_code == 404
+    assert response["Content-Type"].startswith("application/json")
+    assert response.json()["error"]["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_health_endpoint_reports_ok(api_client):
+    response = api_client.get("/api/health/")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

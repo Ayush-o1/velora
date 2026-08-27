@@ -24,7 +24,14 @@ RUN npm run build
 
 FROM node:22-slim AS runner
 WORKDIR /app
-ENV NODE_ENV=production
+# Next's standalone server binds to $HOSTNAME, which Docker sets to the
+# container id — so it listened on exactly one interface and nothing
+# inside the container could reach it on localhost. Reachable from Nginx
+# by container IP either way, but it made the healthcheck impossible and
+# the binding needlessly narrow.
+ENV NODE_ENV=production \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
 
 RUN adduser --disabled-password --no-create-home velora
 COPY --from=builder /app/public ./public
