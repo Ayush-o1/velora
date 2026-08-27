@@ -205,6 +205,78 @@ dev through Nginx with zero console errors.
 
 ---
 
+## Prompt 5 — architecture and technical-presentation audit
+
+With the product, correctness, and design work verified, I gave the
+agent a final brief specifically about the architecture itself and how
+it's presented to an evaluator: audit domain boundaries, data flow, and
+the booking transaction end-to-end against the real code (not
+assumption), and only then decide whether the repository's diagrams and
+docs actually represent the quality of the implementation. Explicitly
+scoped against over-engineering: "simple + explicit + maintainable"
+was stated as preferable to "complex + impressive-looking," and the
+agent was told not to restructure working code merely to look more
+sophisticated.
+
+**What was used.** The agent re-read the real backend source
+(`services.py`, `views.py`, `permissions.py`, `exceptions.py` across
+all four Django apps) and the frontend's `lib/` and page components
+fresh, rather than relying on this file's own earlier summaries of
+that code, to check whether the accounts/catalog/bookings/core
+boundary and the services-not-views placement of business logic still
+held up. It also re-derived the booking concurrency sequence directly
+from `create_booking()`'s actual statement order (start-time check,
+then duplicate check, then capacity check — in that order, for the
+specific reason documented in the function's own docstring) rather
+than from memory, before diagramming it.
+
+**What was changed.** Nothing in the backend or frontend code. The
+audit's conclusion was that the existing domain boundaries, service
+layer, and permission classes were already the right shape — thin
+views, isolated services, object-level permission checks, no dumping
+ground in `core` — so the honest outcome was "leave it alone," per the
+brief's own instruction. What changed was purely presentational: the
+README's single cramped ASCII architecture diagram was replaced with
+three focused Mermaid diagrams (infrastructure, GitHub OAuth flow, and
+the booking row-lock sequence), and a "Preview" section with two real
+screenshots was added.
+
+**What was caught by actually running it, not by inspection.** The
+first draft of the booking-concurrency sequence diagram used `;` inside
+message text (`"BEGIN; SELECT session FOR UPDATE"`) to read naturally
+in prose. Mermaid's sequence-diagram grammar treats `;` as a statement
+separator, not punctuation, so that diagram would have silently failed
+to render on GitHub. This wasn't caught by reading the Mermaid source —
+it was caught by actually installing `@mermaid-js/mermaid-cli` and
+rendering all three diagrams to PNG locally before committing them,
+which is the same "run it, don't just write it" standard applied to
+code throughout this project, applied here to documentation.
+
+**How it was verified.** All three Mermaid diagrams were rendered
+locally with `mmdc` and visually inspected against the real source
+they describe (the `SELECT ... FOR UPDATE` ordering in `services.py`,
+the exact cookie/response shape in `accounts/views.py`) before being
+committed. The two screenshots in the README were captured against the
+actual running Docker stack with realistic seeded data (via
+`manage.py shell`, not fabricated markup), then that seed data was
+deleted so the shipped deployment starts genuinely empty, matching
+what the rest of this README already claims. The full backend suite
+(41/41) was re-run against the same Docker Postgres afterward to
+confirm the seed/cleanup round-trip left no residue.
+
+**Database setup, addressed in the same pass.** I separately asked the
+agent to check whether Velora needed a dedicated local PostgreSQL
+database, since I had host PostgreSQL/MongoDB credentials available
+for unrelated projects. The agent inspected `docker-compose.yml` and
+`settings.py` first rather than assuming, and correctly reported that
+Velora already runs its own self-contained, dedicated `velora`
+database inside Docker's named volume — entirely separate from the
+host's Homebrew PostgreSQL instance and from the unrelated databases I
+mentioned — so no new database was created and nothing on the host
+machine was touched.
+
+---
+
 ## What AI got wrong / what I corrected
 
 Concrete, from this project (full detail in DEBUGGING.md):
@@ -294,11 +366,22 @@ already-"working" code was worth doing at all.
    mobile width, which nothing in that first pass had actually
    rendered. See DEBUGGING.md #8b.
 
-The common thread across all seven: every one of these was invisible
-from reading the code and only became visible by running it — the test
-suite, a live request, a screenshot at the viewport that mattered, a
-computed contrast ratio instead of an eyeballed one. That's the
-practical argument for the "implement → test → inspect → fix → re-test"
-loop over "generate and assume," repeated across three separate passes
-on this project (initial build, audit, redesign) rather than just the
-first one.
+8. **A documentation diagram with a real syntax bug, caught the same
+   way as a code bug.** The first draft of the booking-concurrency
+   Mermaid diagram used a semicolon inside message text
+   (`"BEGIN; SELECT session FOR UPDATE"`) for readability, not knowing
+   Mermaid's sequence-diagram grammar treats `;` as a statement
+   separator — it would have silently failed to render on GitHub. Found
+   by actually rendering all three diagrams locally with
+   `@mermaid-js/mermaid-cli` before committing them, not by proofreading
+   the Mermaid source. See DEBUGGING.md #9.
+
+The common thread across all eight: every one of these was invisible
+from reading the code (or, in the last case, the diagram source) and
+only became visible by running it — the test suite, a live request, a
+screenshot at the viewport that mattered, a computed contrast ratio
+instead of an eyeballed one, a diagram actually rendered instead of
+proofread. That's the practical argument for the "implement → test →
+inspect → fix → re-test" loop over "generate and assume," repeated
+across four separate passes on this project (initial build, audit,
+redesign, architecture/presentation) rather than just the first one.

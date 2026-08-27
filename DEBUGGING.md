@@ -11,7 +11,9 @@ already-"complete" codebase — a second pass that assumed nothing and
 re-verified everything, rather than trusting the first pass's report.
 Issues 7–8 were found during a subsequent frontend redesign pass, while
 actually driving the rebuilt UI with a real, authenticated browser
-session rather than only checking it compiled.
+session rather than only checking it compiled. Issue 9 was found during
+a final architecture/documentation pass, by actually rendering a
+diagram rather than proofreading its source.
 
 ---
 
@@ -339,3 +341,38 @@ narrow screens. See
 [`frontend/src/app/creator/dashboard/page.tsx`](frontend/src/app/creator/dashboard/page.tsx)
 and
 [`frontend/src/app/bookings/page.tsx`](frontend/src/app/bookings/page.tsx).
+
+---
+
+## 9. A Mermaid diagram that would have silently failed to render on GitHub
+
+**Symptom.** None visible by reading the diagram source — it looked
+like ordinary, readable message text.
+
+**What happened.** The first draft of the booking-concurrency sequence
+diagram in `README.md` wrote a step as:
+
+```
+A->>DB: BEGIN; SELECT session FOR UPDATE
+```
+
+using `;` the way it reads in prose — "begin the transaction, then
+select." Mermaid's sequence-diagram grammar doesn't treat `;` as
+punctuation inside message text; it's a statement separator, so the
+parser read this as two separate (and, for the second half, invalid)
+statements and would have failed to render the whole diagram.
+
+**How it was caught.** Not by proofreading the Mermaid source — by
+actually rendering it. Installing `@mermaid-js/mermaid-cli` and running
+`mmdc` against all three new diagrams locally surfaced a parse error
+pointing at exactly this line before any of them were committed.
+
+**Fix.** Rewrote the two offending steps to avoid `;` in message text
+entirely (`"SELECT session FOR UPDATE (inside BEGIN)"` and `"INSERT
+booking, then COMMIT"`), then re-rendered all three diagrams and
+visually confirmed each one before committing.
+
+**Why this is worth logging.** It's the same class of mistake as
+issues 1–8, just in documentation instead of code: something that
+looked correct on inspection and was only proven correct (or, here,
+proven wrong) by actually running it.

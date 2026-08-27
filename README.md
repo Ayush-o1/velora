@@ -25,20 +25,47 @@ verified as part of building this project, not left for you to check.
 
 ---
 
+## Preview
+
+<table>
+<tr>
+<td width="55%"><img src="docs/screenshots/catalog.png" alt="Catalog page: a grid of session cards with dateline, host, and seats-remaining"></td>
+<td><img src="docs/screenshots/session-detail.png" alt="Session detail page: content on the left, a sticky booking panel on the right"></td>
+</tr>
+<tr>
+<td>Catalog — editorial datelines, live seat counts, no auth required.</td>
+<td>Session detail — booking panel is sticky and always the clearest thing on the page.</td>
+</tr>
+</table>
+
+Captured against the real running stack with seeded demo data, then
+the data was cleared — the deployment you'll run starts genuinely
+empty, as described above.
+
+---
+
 ## Architecture
 
-```
-                     ┌────────────────────────┐
-   browser  ───────► │   Nginx  (:3000)        │
-                     │  /api,/admin,/static ───┼──► backend  (Django+DRF, :8000)
-                     │  everything else    ────┼──► frontend (Next.js,  :3000)
-                     └────────────────────────┘
-                                                        backend ──► db (Postgres, named volume)
+```mermaid
+flowchart TD
+    Browser(["Browser"])
+    Nginx["Nginx — :3000\nsingle public entrypoint"]
+    Frontend["frontend\nNext.js (App Router)"]
+    Backend["backend\nDjango + DRF"]
+    DB[("db\nPostgreSQL 16\nnamed volume: postgres_data")]
+
+    Browser -->|HTTP| Nginx
+    Nginx -->|"/api/*, /admin/*, /static/*"| Backend
+    Nginx -->|"everything else"| Frontend
+    Backend -->|SQL| DB
 ```
 
-Nginx is the single entrypoint the browser talks to, so frontend and
-API share one origin — no CORS, and the refresh-token cookie can be a
-plain `SameSite=Lax` cookie (see [DECISIONS.md](DECISIONS.md) for why).
+Four Docker Compose services — `nginx`, `frontend`, `backend`, `db` —
+each with one job. Nginx is the single entrypoint the browser talks
+to, so frontend and API share one origin: no CORS, and the
+refresh-token cookie can be a plain `SameSite=Lax` cookie (see
+[DECISIONS.md](DECISIONS.md) #3 for why that trade-off was made
+deliberately, not by default).
 
 **Backend apps** (`backend/apps/`):
 - `accounts` — custom `User` model (`role: user|creator`), GitHub OAuth
@@ -120,6 +147,31 @@ want to browse the data directly).
 
 ## How authentication works
 
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant F as Frontend (Next.js)
+    participant D as Backend (Django)
+    participant G as GitHub
+
+    B->>F: Click "Sign in with GitHub"
+    F->>B: Redirect to GitHub authorize URL<br/>(state stashed in sessionStorage)
+    B->>G: Authorize
+    G->>B: Redirect to /auth/callback?code&state
+    F->>F: Verify state matches
+    F->>D: POST /api/auth/github/callback/ {code}
+    D->>G: Exchange code for access token (server-side only)
+    G-->>D: GitHub access token
+    D->>G: Fetch profile + verified email
+    G-->>D: profile
+    D->>D: get_or_create(User)
+    D-->>F: 200 {access} + Set-Cookie: refresh (httpOnly, /api/auth/)
+    F->>F: Hold access token in memory only
+```
+
+The client secret is used in exactly one place — the `D->>G` exchange
+above — and never reaches the browser.
+
 1. Frontend redirects to GitHub's OAuth authorize URL with a random
    `state` value stashed in `sessionStorage` (CSRF protection).
 2. GitHub redirects back to `/auth/callback?code=...&state=...` (or
@@ -181,8 +233,36 @@ endpoint at all.
 ## Booking concurrency strategy
 
 **The invariant:** a session's active bookings can never exceed its
-capacity, even under real concurrent requests. Full reasoning and the
-rejected alternatives are in [DECISIONS.md](DECISIONS.md); summary:
+capacity, even under real concurrent requests. The database is the
+authority for this — not the view, not the frontend:
+
+```mermaid
+sequenceDiagram
+    participant A as Request A
+    participant B as Request B
+    participant DB as PostgreSQL
+
+    A->>DB: SELECT session FOR UPDATE (inside BEGIN)
+    activate DB
+    DB-->>A: row lock acquired
+    B->>DB: SELECT session FOR UPDATE (inside BEGIN)
+    Note over B,DB: blocks — row already locked by A
+    A->>A: check start_time, check duplicate,<br/>count active bookings vs. capacity
+    A->>DB: INSERT booking, then COMMIT
+    deactivate DB
+    DB-->>B: row lock acquired — A's write now visible
+    activate DB
+    B->>B: same checks, re-read after A's commit
+    B->>DB: capacity reached → abort, no INSERT
+    deactivate DB
+```
+
+`B` is not rejected because of a stale flag or a retry — it is
+physically blocked at `SELECT ... FOR UPDATE` until `A`'s transaction
+resolves, so its capacity check always runs against data that already
+includes `A`'s booking. Full reasoning and the rejected alternatives
+(optimistic locking, naive check-then-insert) are in
+[DECISIONS.md](DECISIONS.md); summary:
 
 - `select_for_update()` locks the `Session` row inside
   `transaction.atomic()` while `create_booking()` counts active
