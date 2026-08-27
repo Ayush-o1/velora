@@ -13,7 +13,10 @@ Issues 7–8 were found during a subsequent frontend redesign pass, while
 actually driving the rebuilt UI with a real, authenticated browser
 session rather than only checking it compiled. Issue 9 was found during
 a final architecture/documentation pass, by actually rendering a
-diagram rather than proofreading its source.
+diagram rather than proofreading its source. Issue 10 was found during
+the final OAuth-configuration verification pass, by checking test
+coverage against the real code paths rather than trusting a green test
+run.
 
 ---
 
@@ -376,3 +379,56 @@ visually confirmed each one before committing.
 issues 1–8, just in documentation instead of code: something that
 looked correct on inspection and was only proven correct (or, here,
 proven wrong) by actually running it.
+
+---
+
+## 10. The entire OAuth/JWT lifecycle had zero automated test coverage
+
+**Symptom.** None visible from running the existing suite — all 41
+tests passed, including several that issue a JWT directly via
+`AccessToken.for_user(...)` in the test itself and then check that
+endpoint correctly *validates* it.
+
+**What was actually missing.** `GitHubCallbackView` (the code-exchange
+endpoint that creates/looks up a user and issues the first token pair),
+`RefreshView` (rotation), and `LogoutView` (blacklisting) had no tests
+at all — `apps/accounts/tests.py` only ever tested what happens once a
+valid token already exists, never how one is issued, rotated, or
+revoked. This is exactly the part of the system a real GitHub login
+exercises first, and it was the least-tested part of it.
+
+**How it was caught.** While doing a final audit specifically of the
+OAuth/JWT lifecycle (prompted by configuring real GitHub credentials
+for the first time), grepping the codebase for any test referencing
+`GitHubCallbackView`, `github/callback`, or `exchange_code_for_profile`
+turned up nothing — not a failing test, an *absent* one. The gap was
+found by asking "where's the test for this," not by a red test run.
+
+**Fix.** Added nine tests to `backend/apps/accounts/tests.py`:
+`exchange_code_for_profile` is mocked (a real GitHub authorization
+can't be scripted without a human's actual consent-screen click), but
+everything downstream is exercised for real: new
+user creation with correct fields, `get_or_create` idempotency across
+repeat logins with profile-field updates, the two GitHub-side failure
+paths (`oauth_exchange_failed`, `oauth_provider_unreachable`), refresh
+token rotation issuing a new access token, the rotated-out token being
+rejected on reuse, logout blacklisting the refresh token, and the
+refresh cookie's actual attributes (`httponly`, `path=/api/auth/`,
+`samesite`) rather than just its presence.
+
+**Verified as load-bearing, not just added.** Per this project's
+standing discipline, the rotation/blacklist test wasn't trusted on
+sight: `old_refresh.blacklist()` in `RefreshView` was temporarily
+replaced with `pass`, the suite was rerun, and
+`test_refresh_rotates_token_and_issues_new_access_token` failed exactly
+as expected (`200 == 401`, i.e. the "already used" refresh token was
+accepted again). The real line was restored and the suite rerun clean
+— 50/50, backend test count up from 41.
+
+**Why this is worth logging.** The other nine issues in this file were
+all "the code does the wrong thing." This one is different: the code
+was already correct (the OAuth/JWT views had been exercised manually,
+by hand, multiple times across earlier phases) — what was missing was
+proof of it that survives a refactor. "It works when I click through
+it" and "there's a test that fails if it breaks" are different claims,
+and only the second one holds up over time.

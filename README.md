@@ -132,6 +132,12 @@ Put the generated Client ID / Secret into `.env` as `GITHUB_CLIENT_ID` /
 time to construct GitHub's authorize URL (it's public by design — only
 the secret is sensitive, and it never leaves the backend).
 
+**If you edit `.env` after already running `docker compose up`**, both
+`GITHUB_CLIENT_ID` and `GITHUB_OAUTH_REDIRECT_URI` are baked into the
+frontend image as Docker build args, not read at container start — a
+plain restart won't pick up the change. Rebuild instead:
+`docker compose up --build -d`.
+
 ### 3. Run
 
 ```bash

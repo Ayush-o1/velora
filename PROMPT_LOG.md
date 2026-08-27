@@ -277,6 +277,87 @@ machine was touched.
 
 ---
 
+## Prompt 6 — GitHub OAuth App research, then real end-to-end verification
+
+Two related prompts. First, before touching any configuration, I asked
+the agent to independently verify GitHub's *current* official OAuth App
+setup process (not rely on prior knowledge) and cross-check it against
+Velora's actual source — exact settings page, exact form fields, exact
+callback URL and env var names as the code expects them, and any recent
+GitHub-side changes that could matter. Second, once I'd registered a
+real OAuth App and put the real Client ID/Secret in `.env`, I asked for
+a full end-to-end re-verification of the whole assignment — not a
+report that trusted the previous one.
+
+**What was used for the research prompt.** The agent fetched GitHub's
+live documentation pages directly (`creating-an-oauth-app`, and the
+GitHub Changelog) rather than recalling them from training data, and
+separately re-read `accounts/services.py`, `settings.py`,
+`docker-compose.yml`, and `.env.example` to derive the exact callback
+URL and variable names from the code itself. It surfaced two genuinely
+current facts neither of us had front-of-mind: GitHub started
+returning an `iss` parameter in OAuth callbacks in April 2026 (RFC
+9207) — irrelevant here since Velora's exchange code doesn't read that
+field — and started defaulting new OAuth Apps to short-lived tokens in
+August 2026 — also irrelevant, since Velora never stores the GitHub
+token past the single login exchange. Checking rather than assuming
+either was safe to ignore is what made "no code change needed" an
+actual conclusion instead of a guess.
+
+**What was used for the verification prompt.** The agent inspected the
+real `.env` file byte-for-byte (line endings, quoting, trailing
+whitespace, duplicate keys — none found) rather than assuming correct
+values meant correct formatting, then discovered the running containers
+predated the credentials being added (backend env showed the client ID
+and secret as empty, and the ID wasn't present in the built frontend
+bundle) and rebuilt. It then verified the OAuth wiring itself by
+actually clicking "Continue with GitHub" in a real (if cookie-less)
+headless browser and capturing the resulting network request — GitHub
+served its real login page rather than an invalid-client-id error,
+which is real evidence the registered app and redirect URI are valid,
+without ever entering my GitHub credentials or completing the consent
+screen myself.
+
+**What this pass found and fixed.** While specifically checking test
+coverage of the OAuth/JWT lifecycle — not because anything was
+failing — it found that `GitHubCallbackView`, `RefreshView`, and
+`LogoutView` had zero automated tests between them; every existing auth
+test assumed a token already existed rather than testing how one gets
+issued, rotated, or revoked. Nine tests were added covering user
+creation, `get_or_create` idempotency, both GitHub-failure error codes,
+refresh rotation, reuse-after-rotation rejection, and logout
+blacklisting. One of them (the rotation/reuse test) was verified the
+same way as every fix in this project: `old_refresh.blacklist()` was
+temporarily replaced with a no-op, the suite was rerun and the new test
+failed exactly as expected, then the real line was restored. Full
+detail in DEBUGGING.md #10.
+
+**What was correctly identified as needing me, not the agent.** The
+literal "click Authorize" step on GitHub's real consent screen, since
+that requires my actual GitHub account and consent — the agent was
+explicit that it stopped there rather than attempting to simulate or
+bypass it.
+
+**How it was verified.** Backend suite 50/50 (41 pre-existing + 9 new)
+against the real Postgres container; a fresh 20-contender concurrency
+race via `prove_concurrency` (1 success, 19 correctly rejected); live
+`curl` attacks against the running API through Nginx (cross-role and
+cross-creator access, spoofed `creator`/`is_staff`/`is_superuser`
+fields, duplicate/full/already-started booking rejections) — all
+rejected server-side, with the ownership-spoofing attempt independently
+confirmed unwritten in the database, not just absent from the response;
+a real Docker restart-based persistence check (`backend`+`db`, not
+`-v`) with a marker row that survived; frontend `eslint`/`tsc`/`build`
+clean; three real authenticated browser sessions (anonymous, a learner,
+a creator) driven via cookie-injected JWTs with zero page errors,
+including a mobile-viewport check and an OAuth-cancellation error page;
+and a full git/secret-history scan confirming the real Client
+ID/Secret were never committed. All seed/attack-test data created
+during this pass was deleted afterward — the deployment handed back is
+the same genuinely-empty state it started in.
+
+---
+
 ## What AI got wrong / what I corrected
 
 Concrete, from this project (full detail in DEBUGGING.md):
@@ -376,12 +457,24 @@ already-"working" code was worth doing at all.
    `@mermaid-js/mermaid-cli` before committing them, not by proofreading
    the Mermaid source. See DEBUGGING.md #9.
 
-The common thread across all eight: every one of these was invisible
-from reading the code (or, in the last case, the diagram source) and
-only became visible by running it — the test suite, a live request, a
-screenshot at the viewport that mattered, a computed contrast ratio
-instead of an eyeballed one, a diagram actually rendered instead of
-proofread. That's the practical argument for the "implement → test →
-inspect → fix → re-test" loop over "generate and assume," repeated
-across four separate passes on this project (initial build, audit,
-redesign, architecture/presentation) rather than just the first one.
+9. **A whole code path with no test at all, not a wrong one.** The
+   OAuth callback, refresh-rotation, and logout views had never been
+   tested — every existing auth test started from an already-issued
+   token. Nothing was failing; the gap was only visible by asking
+   "where's the test that issues one" and finding no answer. Fixed by
+   adding nine tests and confirming the rotation/blacklist one actually
+   catches a real regression (temporarily no-opped `.blacklist()`,
+   watched the new test fail, restored it). See DEBUGGING.md #10.
+
+The common thread across all nine: every one of these was invisible
+from reading the code (or, in cases 8–9, from a green test run) and
+only became visible by running it, or by checking that something
+existed to run at all — the test suite, a live request, a screenshot at
+the viewport that mattered, a computed contrast ratio instead of an
+eyeballed one, a diagram actually rendered instead of proofread, a
+question about coverage instead of a trusted pass/fail. That's the
+practical argument for the "implement → test → inspect → fix → re-test"
+loop over "generate and assume," repeated across five separate passes
+on this project (initial build, audit, redesign,
+architecture/presentation, OAuth verification) rather than just the
+first one.
