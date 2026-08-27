@@ -1,4 +1,5 @@
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -20,17 +21,40 @@ class SessionViewSet(viewsets.ModelViewSet):
     """
 
     permission_classes = [IsSessionOwnerOrReadOnly]
-    filterset_fields = []
 
     def get_queryset(self):
-        qs = Session.objects.select_related("creator").annotate(
-            active_booking_count=Count("bookings", filter=Q(bookings__status="active"))
-        ).order_by("start_time")
-        if self.action == "list" and self.request.query_params.get("upcoming") == "true":
-            from django.utils import timezone
+        from apps.bookings.models import Booking
 
-            qs = qs.filter(start_time__gt=timezone.now())
-        return qs
+        qs = Session.objects.select_related("creator").annotate(
+            active_booking_count=Count("bookings", filter=Q(bookings__status=Booking.Status.ACTIVE))
+        )
+
+        # One `EXISTS` subquery instead of a per-row lookup, so the catalog
+        # can tell each signed-in viewer "you're already booked" without
+        # turning a 20-item page into 21 queries.
+        user = self.request.user
+        if user.is_authenticated:
+            qs = qs.annotate(
+                viewer_active_booking=Exists(
+                    Booking.objects.filter(
+                        session=OuterRef("pk"), user=user, status=Booking.Status.ACTIVE
+                    )
+                )
+            )
+
+        if self.action == "list":
+            search = (self.request.query_params.get("search") or "").strip()
+            if search:
+                qs = qs.filter(
+                    Q(title__icontains=search)
+                    | Q(description__icontains=search)
+                    | Q(location__icontains=search)
+                    | Q(creator__username__icontains=search)
+                )
+            if self.request.query_params.get("upcoming") == "true":
+                qs = qs.filter(start_time__gt=timezone.now())
+
+        return qs.order_by("start_time")
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -40,13 +64,21 @@ class SessionViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(creator=self.request.user)
 
+    def _read_serializer(self, pk):
+        """Re-read through the annotated queryset so a write response carries
+        the same computed fields (seat counts, viewer state) as a read."""
+        return SessionSerializer(self.get_queryset().get(pk=pk), context=self.get_serializer_context())
+
     def create(self, request, *args, **kwargs):
         write_serializer = self.get_serializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
         self.perform_create(write_serializer)
-        instance = self.get_queryset().get(pk=write_serializer.instance.pk)
         headers = self.get_success_headers(write_serializer.data)
-        return Response(SessionSerializer(instance).data, status=status.HTTP_201_CREATED, headers=headers)
+        return Response(
+            self._read_serializer(write_serializer.instance.pk).data,
+            status=status.HTTP_201_CREATED,
+            headers=headers,
+        )
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
@@ -54,14 +86,12 @@ class SessionViewSet(viewsets.ModelViewSet):
         write_serializer = self.get_serializer(session, data=request.data, partial=partial)
         write_serializer.is_valid(raise_exception=True)
         write_serializer.save()
-        instance = self.get_queryset().get(pk=session.pk)
-        return Response(SessionSerializer(instance).data)
+        return Response(self._read_serializer(session.pk).data)
 
     @action(detail=False, methods=["get"], permission_classes=[IsAuthenticated])
     def mine(self, request):
         qs = self.get_queryset().filter(creator=request.user)
         page = self.paginate_queryset(qs)
-        serializer = SessionSerializer(page or qs, many=True)
         if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response(serializer.data)
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return Response(self.get_serializer(qs, many=True).data)
