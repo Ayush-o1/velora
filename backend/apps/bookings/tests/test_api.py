@@ -106,3 +106,20 @@ def test_cancel_booking_frees_seat(api_client, plain_user, make_session):
     from apps.bookings.models import Booking
 
     assert Booking.objects.filter(session=session, status=Booking.Status.ACTIVE).count() == 0
+
+
+@pytest.mark.django_db
+def test_cannot_cancel_another_users_booking(api_client, plain_user, make_user, make_session):
+    session = make_session(capacity=5)
+    create_response = api_client.post(
+        "/api/bookings/", {"session": session.id}, format="json", **auth_header(plain_user)
+    )
+    booking_id = create_response.json()["id"]
+
+    other_user = make_user("nosybystander")
+    response = api_client.delete(f"/api/bookings/{booking_id}/", **auth_header(other_user))
+    assert response.status_code == 404
+
+    from apps.bookings.models import Booking
+
+    assert Booking.objects.get(id=booking_id).status == Booking.Status.ACTIVE
