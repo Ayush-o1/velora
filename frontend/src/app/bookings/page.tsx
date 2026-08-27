@@ -71,7 +71,7 @@ export default function BookingsPage() {
           description={tab === "active" ? "Browse the catalog to book a session." : undefined}
           action={
             tab === "active" ? (
-              <Link href="/">
+              <Link href="/sessions">
                 <Button variant="secondary" size="sm">Browse sessions</Button>
               </Link>
             ) : undefined

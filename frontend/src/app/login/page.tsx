@@ -20,7 +20,7 @@ export default function LoginPage() {
   const { status } = useAuth();
 
   useEffect(() => {
-    if (status === "authenticated") router.replace("/");
+    if (status === "authenticated") router.replace("/sessions");
   }, [status, router]);
 
   const handleSignIn = () => {

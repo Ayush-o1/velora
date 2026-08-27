@@ -19,8 +19,15 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Velora",
-  description: "A considered place to host and book live sessions.",
+  title: { default: "Velora", template: "%s · Velora" },
+  description:
+    "A small marketplace for live sessions. Creators publish a time and a seat count; you take one of the seats.",
+  openGraph: {
+    title: "Velora",
+    description:
+      "A small marketplace for live sessions. Creators publish a time and a seat count; you take one of the seats.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

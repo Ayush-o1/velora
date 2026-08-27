@@ -19,7 +19,7 @@ export function useRequireAuth(requiredRole?: Role) {
     if (status === "unauthenticated") {
       router.replace("/login");
     } else if (status === "authenticated" && requiredRole && user?.role !== requiredRole) {
-      router.replace("/");
+      router.replace("/sessions");
     }
   }, [status, user, requiredRole, router]);
 

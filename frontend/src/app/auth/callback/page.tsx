@@ -43,7 +43,7 @@ function CallbackInner() {
     sessionStorage.removeItem("velora_oauth_state");
 
     loginWithGitHubCode(code)
-      .then(() => router.replace("/"))
+      .then(() => router.replace("/sessions"))
       .catch((err) => {
         if (err instanceof ApiError) {
           setError(err.message);

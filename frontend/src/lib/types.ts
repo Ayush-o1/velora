@@ -31,6 +31,7 @@ export interface SessionItem {
   seats_taken: number;
   seats_remaining: number;
   has_started: boolean;
+  viewer_has_booked: boolean;
   created_at: string;
   updated_at: string;
 }

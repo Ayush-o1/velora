@@ -43,7 +43,7 @@ export function Nav() {
 
         {/* Desktop nav */}
         <nav className="hidden sm:flex items-center gap-7">
-          <NavLink href="/">Browse</NavLink>
+          <NavLink href="/sessions">Browse</NavLink>
           {status === "authenticated" && user && (
             <>
               <NavLink href="/bookings">My bookings</NavLink>
@@ -99,7 +99,7 @@ export function Nav() {
       {menuOpen && (
         <nav id="mobile-nav" className="sm:hidden border-t border-border bg-bg px-5 py-4 space-y-4">
           <div className="flex flex-col gap-3.5">
-            <NavLink href="/" onClick={closeMenu}>Browse</NavLink>
+            <NavLink href="/sessions" onClick={closeMenu}>Browse</NavLink>
             {status === "authenticated" && user && (
               <>
                 <NavLink href="/bookings" onClick={closeMenu}>My bookings</NavLink>
