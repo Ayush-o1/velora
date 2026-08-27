@@ -78,4 +78,14 @@ class BookingViewSet(GenericViewSet):
                 {"error": {"code": "booking_not_found", "detail": "Booking not found."}},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        except services.SessionAlreadyStartedError:
+            return Response(
+                {
+                    "error": {
+                        "code": "session_already_started",
+                        "detail": "This session has already started; the booking can no longer be cancelled.",
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(BookingSerializer(booking).data, status=status.HTTP_200_OK)

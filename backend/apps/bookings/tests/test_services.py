@@ -77,6 +77,33 @@ def test_create_booking_rejects_already_started_session(plain_user, creator):
 
 
 @pytest.mark.django_db
+def test_cancel_booking_rejects_once_session_has_started(plain_user, creator):
+    """
+    Found during audit: cancel_booking had no started-session check at
+    all, so a booking for a session already underway (or long over)
+    could still be silently cancelled via a direct API call, even
+    though the frontend hides the button by then. Mirrors the same
+    restriction create_booking already enforces.
+    """
+    from apps.catalog.models import Session
+
+    session = Session.objects.create(
+        creator=creator,
+        title="Started session",
+        start_time=timezone.now() - timedelta(minutes=1),
+        duration_minutes=30,
+        capacity=5,
+    )
+    booking = Booking.objects.create(user=plain_user, session=session, status=Booking.Status.ACTIVE)
+
+    with pytest.raises(services.SessionAlreadyStartedError):
+        services.cancel_booking(user=plain_user, booking_id=booking.id)
+
+    booking.refresh_from_db()
+    assert booking.status == Booking.Status.ACTIVE
+
+
+@pytest.mark.django_db
 def test_cancel_booking_frees_a_seat_for_someone_else(plain_user, make_user, make_session):
     session = make_session(capacity=1)
     booking = services.create_booking(user=plain_user, session_id=session.id)

@@ -120,6 +120,28 @@ def test_cancel_booking_frees_seat(api_client, plain_user, make_session):
 
 
 @pytest.mark.django_db
+def test_cancel_started_session_booking_returns_400(api_client, plain_user, creator):
+    from apps.catalog.models import Session
+    from apps.bookings.models import Booking
+
+    session = Session.objects.create(
+        creator=creator,
+        title="Already underway",
+        start_time=timezone.now() - timedelta(minutes=1),
+        duration_minutes=30,
+        capacity=5,
+    )
+    booking = Booking.objects.create(user=plain_user, session=session, status=Booking.Status.ACTIVE)
+
+    response = api_client.delete(f"/api/bookings/{booking.id}/", **auth_header(plain_user))
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "session_already_started"
+
+    booking.refresh_from_db()
+    assert booking.status == Booking.Status.ACTIVE
+
+
+@pytest.mark.django_db
 def test_cannot_cancel_another_users_booking(api_client, plain_user, make_user, make_session):
     session = make_session(capacity=5)
     create_response = api_client.post(

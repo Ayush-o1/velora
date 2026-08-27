@@ -101,8 +101,10 @@ def create_booking(*, user, session_id: int) -> Booking:
 
 @transaction.atomic
 def cancel_booking(*, user, booking_id: int) -> Booking:
-    booking = Booking.objects.select_for_update().get(pk=booking_id, user=user)
+    booking = Booking.objects.select_for_update().select_related("session").get(pk=booking_id, user=user)
     if booking.status == Booking.Status.ACTIVE:
+        if booking.session.start_time <= timezone.now():
+            raise SessionAlreadyStartedError
         booking.status = Booking.Status.CANCELLED
         booking.cancelled_at = timezone.now()
         booking.save(update_fields=["status", "cancelled_at"])
