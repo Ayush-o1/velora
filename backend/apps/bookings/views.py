@@ -46,10 +46,18 @@ class BookingViewSet(GenericViewSet):
         scope = request.query_params.get("scope")
         qs = self.get_queryset()
         now = timezone.now()
+        # Ordered by when the session happens, not when the booking was
+        # made: a list of upcoming commitments is only useful in the order
+        # you'll actually meet them (the model's default -created_at put
+        # next week ahead of tomorrow). Past runs newest-first instead.
         if scope == "active":
-            qs = qs.filter(status=Booking.Status.ACTIVE, session__start_time__gt=now)
+            qs = qs.filter(status=Booking.Status.ACTIVE, session__start_time__gt=now).order_by(
+                "session__start_time"
+            )
         elif scope == "past":
-            qs = qs.filter(session__start_time__lte=now) | qs.filter(status=Booking.Status.CANCELLED)
+            qs = (qs.filter(session__start_time__lte=now) | qs.filter(status=Booking.Status.CANCELLED)).order_by(
+                "-session__start_time"
+            )
 
         page = self.paginate_queryset(qs)
         if page is not None:

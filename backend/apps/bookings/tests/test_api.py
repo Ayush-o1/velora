@@ -226,3 +226,25 @@ def test_booking_payload_cannot_assign_another_user_or_a_forced_status(
     assert booking.user == plain_user
     assert booking.status == Booking.Status.ACTIVE
     assert booking.id != 4242
+
+
+@pytest.mark.django_db
+def test_my_bookings_are_ordered_by_when_the_session_happens(
+    api_client, plain_user, creator, make_session
+):
+    """
+    The model's default ordering is -created_at, so a list of upcoming
+    commitments came back in the order they were booked — putting next
+    week ahead of tomorrow. Ordered by session start instead.
+    """
+    from apps.bookings.models import Booking
+
+    far = make_session(owner=creator, starts_in_hours=200, title="Far")
+    near = make_session(owner=creator, starts_in_hours=5, title="Near")
+    middle = make_session(owner=creator, starts_in_hours=60, title="Middle")
+    for session in (far, near, middle):  # deliberately not chronological
+        Booking.objects.create(user=plain_user, session=session)
+
+    response = api_client.get("/api/bookings/me/?scope=active", **auth_header(plain_user))
+    titles = [b["session"]["title"] for b in response.json()["results"]]
+    assert titles == ["Near", "Middle", "Far"]

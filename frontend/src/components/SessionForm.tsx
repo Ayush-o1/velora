@@ -64,18 +64,20 @@ export function SessionForm({
         <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} />
       </FieldWrapper>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-3 sm:col-span-1">
-          <FieldWrapper label="Start time" htmlFor="start_time">
-            <Input
-              id="start_time"
-              required
-              type="datetime-local"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-            />
-          </FieldWrapper>
-        </div>
+      {/* Start time gets its own full-width row: squeezed into a third of
+          a 512px form, the native datetime-local control clipped its own
+          value ("31/08/2026, 0(") in every browser tested. */}
+      <FieldWrapper label="Start time" htmlFor="start_time">
+        <Input
+          id="start_time"
+          required
+          type="datetime-local"
+          value={startTime}
+          onChange={(e) => setStartTime(e.target.value)}
+        />
+      </FieldWrapper>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FieldWrapper label="Duration (min)" htmlFor="duration">
           <Input
             id="duration"

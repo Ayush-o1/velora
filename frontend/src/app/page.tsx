@@ -13,6 +13,30 @@ import { Button } from "@/components/ui/Button";
 /* Hero                                                                */
 /* ------------------------------------------------------------------ */
 
+/** Decorative seat grid. Purely presentational — no counts are claimed. */
+function SeatOrnament() {
+  const taken = new Set([0, 1, 2, 5, 6, 9, 12, 13, 16, 20, 21, 24, 27, 28, 32]);
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute right-0 top-1/2 hidden -translate-y-1/2 lg:block"
+    >
+      <div className="grid grid-cols-6 gap-3 opacity-[0.85]">
+        {Array.from({ length: 36 }).map((_, i) => (
+          <span
+            key={i}
+            className={`block h-7 w-7 rounded-[7px] border ${
+              taken.has(i)
+                ? "border-accent/25 bg-accent/90"
+                : "border-border-strong bg-surface"
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Hero({ isCreator }: { isCreator: boolean }) {
   return (
     <section className="relative overflow-hidden pt-6 pb-14 sm:pt-12 sm:pb-20">
@@ -24,7 +48,13 @@ function Hero({ isCreator }: { isCreator: boolean }) {
         className="pointer-events-none absolute -top-32 left-1/2 h-[420px] w-[820px] -translate-x-1/2 rounded-full bg-accent-soft/60 blur-3xl"
       />
 
-      <div className="relative max-w-3xl animate-fade-up">
+      {/* Ornament, not data: a room of seats, some taken. It anchors the
+          right half of the hero — which was otherwise dead space at
+          desktop widths — without asserting a number Velora would then
+          have to be telling the truth about. */}
+      <SeatOrnament />
+
+      <div className="relative max-w-3xl animate-fade-up lg:max-w-[560px]">
         <p className="text-[13px] font-medium uppercase tracking-[0.1em] text-accent">
           Live sessions · Small rooms
         </p>

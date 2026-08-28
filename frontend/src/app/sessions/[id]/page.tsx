@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { bookingsApi, sessionsApi } from "@/lib/api";
 import type { SessionItem } from "@/lib/types";
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { formatDateTime, formatDuration, formatRelativeToNow } from "@/lib/format";
 import { Avatar, Alert, Badge, Card, PageSpinner } from "@/components/ui/Surfaces";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api-client";
@@ -108,11 +108,15 @@ export default function SessionDetailPage() {
         All sessions
       </Link>
 
-      <div className="grid gap-10 lg:grid-cols-[1fr_320px]">
-        <div className="min-w-0">
+      {/* The aside is source-ordered second for reading order, but pulled
+          above the description on small screens: on a phone the booking
+          panel was otherwise below the entire body copy, so the primary
+          action on the page required scrolling past everything. */}
+      <div className="grid gap-8 lg:grid-cols-[1fr_320px] lg:gap-10">
+        <div className="order-2 min-w-0 lg:order-1">
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-[13px] font-medium uppercase tracking-[0.06em] text-accent">
-              {formatDateTime(session.start_time)}
+              {formatRelativeToNow(session.start_time)}
             </p>
             {statusBadge}
           </div>
@@ -141,7 +145,7 @@ export default function SessionDetailPage() {
           )}
         </div>
 
-        <aside className="h-fit lg:sticky lg:top-24">
+        <aside className="order-1 h-fit lg:order-2 lg:sticky lg:top-24">
           <Card className="p-5">
             <div className="divide-y divide-border">
               <InfoRow label="When" value={formatDateTime(session.start_time)} />
