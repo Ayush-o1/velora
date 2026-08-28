@@ -13,7 +13,10 @@ frontend deliberately designed rather than left at framework defaults
 
 See also: [DECISIONS.md](DECISIONS.md) (non-trivial engineering
 choices), [DEBUGGING.md](DEBUGGING.md) (real bugs found and fixed),
-[PROMPT_LOG.md](PROMPT_LOG.md) (how AI was used on this project).
+[PROMPT_LOG.md](PROMPT_LOG.md) (how AI was used on this project), and
+[the final verification report](docs/VELORA_FINAL_VERIFICATION_REPORT.pdf)
+(every requirement checked against evidence, with the live test output
+and screenshots behind each claim).
 
 **Human action required before this runs end-to-end:** create a GitHub
 OAuth App and put its Client ID/Secret in `.env` — see [GitHub OAuth
