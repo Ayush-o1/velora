@@ -108,12 +108,16 @@ export default function SessionDetailPage() {
         All sessions
       </Link>
 
-      {/* The aside is source-ordered second for reading order, but pulled
-          above the description on small screens: on a phone the booking
-          panel was otherwise below the entire body copy, so the primary
-          action on the page required scrolling past everything. */}
-      <div className="grid gap-8 lg:grid-cols-[1fr_320px] lg:gap-10">
-        <div className="order-2 min-w-0 lg:order-1">
+      {/*
+        Three blocks, ordered differently by breakpoint. On a phone the
+        panel belongs between the title and the description: below the
+        body copy the primary action needed a full scroll to reach, but
+        above the title it asked people to book something they hadn't
+        been told the name of yet. On desktop explicit row/column
+        placement restores the ordinary two-column reading layout.
+      */}
+      <div className="grid gap-8 lg:grid-cols-[1fr_320px] lg:gap-x-10 lg:gap-y-8">
+        <header className="order-1 min-w-0 lg:col-start-1 lg:row-start-1">
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-[13px] font-medium uppercase tracking-[0.06em] text-accent">
               {formatRelativeToNow(session.start_time)}
@@ -132,20 +136,20 @@ export default function SessionDetailPage() {
               <p className="text-[13px] text-muted">Host</p>
             </div>
           </div>
+        </header>
 
-          {session.description && (
-            <div className="mt-8 border-t border-border pt-8">
-              <h2 className="mb-3 text-[13px] font-medium uppercase tracking-[0.06em] text-muted">
-                About
-              </h2>
-              <p className="whitespace-pre-line text-[15px] leading-relaxed text-ink-secondary">
-                {session.description}
-              </p>
-            </div>
-          )}
-        </div>
+        {session.description && (
+          <div className="order-3 min-w-0 border-t border-border pt-8 lg:col-start-1 lg:row-start-2 lg:pt-0">
+            <h2 className="mb-3 text-[13px] font-medium uppercase tracking-[0.06em] text-muted">
+              About
+            </h2>
+            <p className="whitespace-pre-line text-[15px] leading-relaxed text-ink-secondary">
+              {session.description}
+            </p>
+          </div>
+        )}
 
-        <aside className="order-1 h-fit lg:order-2 lg:sticky lg:top-24">
+        <aside className="order-2 h-fit lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:sticky lg:top-24">
           <Card className="p-5">
             <div className="divide-y divide-border">
               <InfoRow label="When" value={formatDateTime(session.start_time)} />
