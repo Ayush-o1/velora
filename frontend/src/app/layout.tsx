@@ -28,6 +28,12 @@ export const metadata: Metadata = {
       "A small marketplace for live sessions. Creators publish a time and a seat count; you take one of the seats.",
     type: "website",
   },
+  // icon.png / apple-icon.png in this directory are picked up automatically
+  // by Next's file-based metadata convention — nothing to wire up here.
+};
+
+export const viewport = {
+  themeColor: "#faf8f3",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

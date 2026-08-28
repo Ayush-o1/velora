@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Surfaces";
+import { Logo } from "@/components/ui/Logo";
 
 function NavLink({ href, children, onClick }: { href: string; children: React.ReactNode; onClick?: () => void }) {
   const pathname = usePathname();
@@ -37,8 +38,8 @@ export function Nav() {
   return (
     <header className="border-b border-border bg-bg/85 backdrop-blur-sm sticky top-0 z-40">
       <div className="max-w-[1180px] mx-auto px-5 sm:px-8 h-[68px] flex items-center justify-between">
-        <Link href="/" className="font-display italic text-[22px] tracking-tight text-ink">
-          Velora
+        <Link href="/" className="text-ink" aria-label="Velora home">
+          <Logo size={26} />
         </Link>
 
         {/* Desktop nav */}
