@@ -304,3 +304,18 @@ number, because a number there would be a claim.
 The reasoning is simple: an invented statistic is the one thing on the
 page that can be checked and found false in ten seconds, and it would
 put every honest claim next to it in doubt.
+
+---
+
+## 8. The logo mark: seats, not an icon
+
+**Problem.** Velora had no real logo — just the wordmark "Velora" set in italic Fraunces. That's fine as a wordmark, but it doesn't give you anything to put in a 16px favicon tab, and a text-only "logo" is one of the things that makes a project read as unfinished.
+
+**Options considered.**
+- **A generic icon** (calendar, ticket, sparkle) next to the wordmark. Rejected — arbitrary, no connection to what the product actually does, and a sparkle icon specifically reads as generic AI-tool branding at this point.
+- **An abstract monogram** built from the letter V. Decorative, but means nothing.
+- **A small grid of four seats, one filled in.** Chosen. This is the same shape as the decorative seat grid already used on the landing page hero — so the mark and the page's own visual language are the same thing, not two unrelated pieces of design.
+
+**Why this is the right mark.** It's tied directly to what the product does — you book one of the seats — rather than being decoration. It holds up at favicon size (checked by rendering it at 16px and 32px before shipping it). The filled seat is fixed to the brand accent color regardless of surrounding text color, so it reads the same way in the nav, the footer, and the login page.
+
+**Trade-off.** It's a geometric mark, not a lettermark, so it doesn't carry the kind of instant "V for Velora" recognition a monogram would. Traded for something that actually means something and is harder to mistake for a stock icon.

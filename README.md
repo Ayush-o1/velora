@@ -1,57 +1,59 @@
 # Velora
 
-A compact sessions marketplace: creators host live sessions, users
-browse and book them. Built as a full-stack candidate assignment,
-prioritizing correctness and defensible engineering decisions — with a
-frontend deliberately designed rather than left at framework defaults
-(see [Design](#design) below).
+A small marketplace for live sessions: creators publish a time and a seat count, people book one of the seats.
+
+Built as a full-stack take-home assignment. The focus is on getting the hard part — booking under concurrent load — provably correct, and on backend authorization that actually holds up when you try to break it, rather than on adding extra features.
 
 - **Backend:** Django 5 + Django REST Framework, PostgreSQL 16
-- **Frontend:** Next.js 16 (App Router, client-side, TypeScript, Tailwind v4)
-- **Auth:** GitHub OAuth → backend-issued JWT access/refresh tokens
-- **Infra:** Docker Compose (Nginx + frontend + backend + Postgres)
+- **Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4)
+- **Auth:** GitHub OAuth → backend-issued JWT (access + refresh)
+- **Infra:** Docker Compose — Nginx, frontend, backend, Postgres
 
-See also: [DECISIONS.md](DECISIONS.md) (non-trivial engineering
-choices), [DEBUGGING.md](DEBUGGING.md) (real bugs found and fixed),
-[PROMPT_LOG.md](PROMPT_LOG.md) (how AI was used on this project), and
-[the final verification report](docs/VELORA_FINAL_VERIFICATION_REPORT.pdf)
-(every requirement checked against evidence, with the live test output
-and screenshots behind each claim).
+Related docs: [DECISIONS.md](DECISIONS.md) (why things are built this way), [DEBUGGING.md](DEBUGGING.md) (real bugs, how they were found and fixed), [PROMPT_LOG.md](PROMPT_LOG.md) (how AI was used), [final verification report](docs/VELORA_FINAL_VERIFICATION_REPORT.pdf) (every requirement checked against evidence).
 
-**Human action required before this runs end-to-end:** create a GitHub
-OAuth App and put its Client ID/Secret in `.env` — see [GitHub OAuth
-App](#2-github-oauth-app) below. This is the one step that genuinely
-can't be automated (no API for creating OAuth Apps, and the secret
-shouldn't be typed anywhere but your own `.env`). Everything else in
-this README — Docker, tests, migrations — has already been run and
-verified as part of building this project, not left for you to check.
+**One manual step before this runs end to end:** you need to create a GitHub OAuth App and put its credentials in `.env`. There's no API for creating one, so it can't be scripted. See [GitHub OAuth setup](#github-oauth-setup) below.
 
 ---
 
-## Preview
+## What it does
+
+Three roles, one app:
+
+- **Anyone** can browse the catalog and open a session — no account needed.
+- A **user** signs in with GitHub, books a seat, and can see their upcoming and past bookings. Cancelling a booking frees the seat immediately.
+- A **creator** (any user can become one from their profile) publishes sessions, edits or deletes their own, and sees live booking counts on a dashboard.
+
+## Key features
+
+- Public catalog with server-side search (title, description, location, host)
+- Session booking with **real concurrency safety** — a capacity-1 session cannot be double-booked, proven under load, not just asserted
+- GitHub OAuth → JWT access token (in memory) + refresh token (httpOnly cookie)
+- Backend-enforced authorization: a user can't touch creator-only endpoints, a creator can't edit someone else's session, checked server-side either way
+- A capacity floor — you can't shrink a session below the number of people already booked
+- Custom visual design (see [DECISIONS.md](DECISIONS.md) #4) instead of default component-library styling
+
+## Product preview
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/landing.png" alt="Velora landing page: an editorial hero reading 'Book a seat in the room where the work actually happens', followed by how-it-works steps and a live preview of upcoming sessions"></td>
-<td><img src="docs/screenshots/catalog.png" alt="Catalog page: a searchable grid of session cards showing dateline, host, and seats remaining"></td>
+<td width="50%"><img src="docs/screenshots/landing.png" alt="Velora landing page"></td>
+<td><img src="docs/screenshots/catalog.png" alt="Catalog page with search and session cards"></td>
 </tr>
 <tr>
-<td>Landing — what Velora is, before you're asked to sign in.</td>
-<td>Catalog — server-side search, live seat counts, no auth required.</td>
+<td>Landing page</td>
+<td>Catalog — search, live seat counts, no login required</td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/session-detail.png" alt="Session detail page: content on the left, a sticky booking panel on the right showing the viewer already holds a seat"></td>
-<td><img src="docs/screenshots/creator-dashboard.png" alt="Creator dashboard: a summary of sessions hosted, upcoming and seats booked, above a list of the creator's own sessions"></td>
+<td><img src="docs/screenshots/session-detail.png" alt="Session detail page with booking panel"></td>
+<td><img src="docs/screenshots/creator-dashboard.png" alt="Creator dashboard"></td>
 </tr>
 <tr>
-<td>Session detail — the panel knows whether <em>you</em> already hold a seat.</td>
-<td>Creator dashboard — live booking counts against capacity.</td>
+<td>Session detail — knows if you've already booked</td>
+<td>Creator dashboard — live counts against capacity</td>
 </tr>
 </table>
 
-Captured against the real running stack with the demo data in
-`tools/seed_demo.py`. A deployment you start yourself begins genuinely
-empty; run that script if you want the same data to look at.
+These were captured against the demo data in `tools/seed_demo.py`. A fresh deployment starts empty.
 
 ---
 
@@ -78,102 +80,32 @@ flowchart TD
     class GitHub,Browser ext;
 ```
 
-Frontend and backend are never published directly — only Nginx binds a
-host port, so everything shares one origin. The client secret lives on
-the backend and is used in exactly one place, the dashed edge above.
+Four containers, one published port. The browser only ever talks to Nginx — frontend and backend are not reachable directly, so there's no CORS to configure and the refresh cookie can be a plain `SameSite=Lax` cookie (see [DECISIONS.md](DECISIONS.md) #3).
 
-Four Docker Compose services — `nginx`, `frontend`, `backend`, `db` —
-each with one job. Nginx is the single entrypoint the browser talks
-to, so frontend and API share one origin: no CORS, and the
-refresh-token cookie can be a plain `SameSite=Lax` cookie (see
-[DECISIONS.md](DECISIONS.md) #3 for why that trade-off was made
-deliberately, not by default).
+**Backend** (`backend/apps/`):
+- `accounts` — user model with a `role` field, GitHub OAuth exchange, JWT issuance/refresh/logout, profile
+- `catalog` — sessions: public read, creator-owned writes
+- `bookings` — the booking model and the capacity-safe booking service, plus a standalone concurrency check (`prove_concurrency`)
+- `core` — health check, shared permissions, one consistent error format for the whole API
 
-**Backend apps** (`backend/apps/`):
-- `accounts` — custom `User` model (`role: user|creator`), GitHub OAuth
-  exchange, JWT issuance/refresh/logout, profile.
-- `catalog` — `Session` model, public read + creator-owned CRUD.
-- `bookings` — `Booking` model, the capacity-safe booking service, and
-  the concurrency proof (`prove_concurrency` management command).
-- `core` — health check, shared permissions, uniform API error envelope.
+**Frontend** (`frontend/src/`): landing page, catalog, session detail, login/OAuth callback, profile, bookings, creator dashboard and forms. `lib/auth-context.tsx` and `lib/api-client.ts` hold the token handling; everything else just consumes it. `components/ui/` has the shared building blocks (buttons, cards, dialogs, form fields).
 
-**Frontend** (`frontend/src/`): landing page (`/`), searchable catalog
-(`/sessions`), session detail + booking, login + OAuth callback,
-profile, booking history, creator dashboard + session CRUD forms. `src/lib/auth-context.tsx` and `api-client.ts` hold
-the auth/token machinery; every other page is a thin consumer of it.
-`src/components/ui/` holds the shared design-system primitives (`Button`,
-`Card`, `Dialog`, `Tabs`, form fields) every page is built from.
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Frontend | Next.js 16, TypeScript, Tailwind v4 |
+| Backend | Django 5, Django REST Framework |
+| Database | PostgreSQL 16 |
+| Auth | GitHub OAuth, `djangorestframework-simplejwt` |
+| Infra | Docker Compose, Nginx, gunicorn |
+| Testing | pytest (backend), ESLint + `tsc` (frontend) |
 
 ---
 
-## Design
+## Authentication
 
-Deliberately not a default component-library look. Fraunces (serif)
-carries all display/headline type; Inter stays confined to UI and body
-text — the combination is what keeps a warm, editorial identity from
-reading as "just Inter with a gradient." Warm paper background, a
-single restrained pine-green accent instead of default blue/purple,
-tokens defined once in `globals.css` and consumed everywhere via
-Tailwind's `@theme`. No UI dependencies were added — the delete
-confirmation dialog uses the native `<dialog>` element rather than a
-modal library, motion respects `prefers-reduced-motion`, and every
-interactive element has a visible focus state. Full reasoning for both
-the identity choice and the native-dialog decision is in
-[DECISIONS.md](DECISIONS.md) #4–5, including a color-contrast bug the
-palette shipped with initially and how it was caught (DEBUGGING.md #8a).
-
----
-
-## Setup
-
-### Prerequisites
-
-- Docker + Docker Compose
-- A GitHub account (to register an OAuth App — see below)
-
-### 1. Environment
-
-```bash
-cp .env.example .env
-```
-
-Fill in `DJANGO_SECRET_KEY` (any long random string —
-`python -c "import secrets; print(secrets.token_urlsafe(50))"` works),
-a `POSTGRES_PASSWORD`, and the GitHub OAuth values below.
-
-### 2. GitHub OAuth App
-
-Create one at **github.com → Settings → Developer settings → OAuth
-Apps → New OAuth App**:
-
-- Homepage URL: `http://localhost:3000`
-- Authorization callback URL: `http://localhost:3000/auth/callback`
-
-Put the generated Client ID / Secret into `.env` as `GITHUB_CLIENT_ID` /
-`GITHUB_CLIENT_SECRET`. The client ID is also read at frontend build
-time to construct GitHub's authorize URL (it's public by design — only
-the secret is sensitive, and it never leaves the backend).
-
-**If you edit `.env` after already running `docker compose up`**, both
-`GITHUB_CLIENT_ID` and `GITHUB_OAUTH_REDIRECT_URI` are baked into the
-frontend image as Docker build args, not read at container start — a
-plain restart won't pick up the change. Rebuild instead:
-`docker compose up --build -d`.
-
-### 3. Run
-
-```bash
-docker compose up --build
-```
-
-Then open **http://localhost:3000**. Django admin is at
-`/admin/` (create a superuser with
-`docker compose exec backend python manage.py createsuperuser` if you
-want to browse the data directly).
-
----
-
-## How authentication works
+GitHub OAuth in, JWT out. The flow:
 
 ```mermaid
 sequenceDiagram
@@ -197,72 +129,29 @@ sequenceDiagram
     F->>F: Hold access token in memory only
 ```
 
-The client secret is used in exactly one place — the `D->>G` exchange
-above — and never reaches the browser.
+1. The frontend redirects to GitHub's OAuth URL with a random `state` value stashed in `sessionStorage`, so the callback can be verified against CSRF.
+2. GitHub redirects back to `/auth/callback` with a `code` (or `error=access_denied` if the user cancels — handled with a plain message and a link back to sign-in, not a crash).
+3. The frontend checks `state` matches, then sends the `code` to the backend.
+4. The backend exchanges the code for a GitHub token **on the server** — the client secret never touches the browser — fetches the verified email, and creates or looks up the user.
+5. The backend returns a short-lived **access token** in the response body and sets the **refresh token** as an httpOnly cookie scoped to `/api/auth/`.
+6. The frontend keeps the access token in memory only (never `localStorage`) and refreshes it silently on a 401 or on page load.
 
-1. Frontend redirects to GitHub's OAuth authorize URL with a random
-   `state` value stashed in `sessionStorage` (CSRF protection).
-2. GitHub redirects back to `/auth/callback?code=...&state=...` (or
-   `?error=...` if the user cancelled/denied — see below).
-3. Frontend verifies `state` matches, then POSTs `code` to
-   `/api/auth/github/callback/`.
-4. Backend exchanges the code for a GitHub access token **server-side**
-   (the client secret never reaches the browser), fetches the GitHub
-   profile + verified email, and get-or-creates a `User`.
-5. Backend returns a short-lived JWT **access token** in the response
-   body and sets the **refresh token** as an httpOnly, `SameSite=Lax`
-   cookie scoped to `/api/auth/`.
-6. The frontend keeps the access token in memory only (never
-   `localStorage`) and attaches it as `Authorization: Bearer <token>`.
-   On any 401, or on a fresh page load, it silently calls
-   `/api/auth/refresh/` (cookie-based) for a new access token before
-   giving up and treating the user as logged out.
+**Roles.** `User.role` is `user` or `creator`. Becoming a creator is a self-service profile update (`PATCH /api/auth/me/ {"role": "creator"}`) — it only grants control over your own sessions, not `is_staff` or `is_superuser`, which aren't exposed by that endpoint at all.
 
-**Error cases handled:**
-- **Expired/invalid access token** → `401` with `{"error": {"code":
-  "token_not_valid", ...}}`; the frontend retries once through a
-  silent refresh, then clears auth state if that also fails.
-- **OAuth cancellation/denial** (`?error=access_denied` from GitHub) or
-  a failed code exchange (expired code, GitHub unreachable) → the
-  callback page shows a plain-language message and a link back to
-  `/login`, never a crash or a raw error dump.
-- **User calling a creator-only endpoint** → `403` from a real DRF
-  permission class (`IsCreator` / `IsSessionOwnerOrReadOnly`), not a
-  hidden frontend button. See `backend/apps/core/permissions.py`.
-- **Creator editing another creator's session** → `403`, enforced by an
-  **object-level** permission check (`obj.creator_id ==
-  request.user.id`), so a crafted request against someone else's
-  session id is rejected server-side regardless of what the frontend
-  would show.
-
-### Roles
-
-`User.role` is `"user"` or `"creator"`. There's no separate
-creator-application flow in this brief, so becoming a creator is a
-self-service profile update (`PATCH /api/auth/me/ {"role": "creator"}`,
-exposed as a "Become a creator" button on the profile page). This only
-ever grants the ability to manage your *own* sessions — it's not a
-path to `is_staff`/`is_superuser`, which aren't exposed by that
-endpoint at all.
+**What's enforced server-side, not just hidden in the UI:**
+- A user hitting a creator-only endpoint gets a real `403` from a DRF permission class, not a hidden button.
+- A creator editing another creator's session gets `403` from an object-level check (`obj.creator_id == request.user.id`) — a crafted request against someone else's session id is rejected regardless of what the UI shows.
+- Expired or invalid tokens return `401`; the frontend retries once through a silent refresh before giving up.
 
 ---
 
-## Session & booking flow
+## Booking correctness
 
-- **Public:** catalog (`GET /api/sessions/`) and session detail
-  (`GET /api/sessions/:id/`) — no auth required.
-- **Creator:** create/update/delete their own sessions
-  (`POST`/`PATCH`/`DELETE /api/sessions/:id/`), and view their own
-  sessions with live booking counts (`GET /api/sessions/mine/`).
-- **User:** book a session (`POST /api/bookings/`), view active/past
-  bookings (`GET /api/bookings/me/?scope=active|past`), cancel an
-  active booking (`DELETE /api/bookings/:id/`, which frees the seat).
+This is the part of the assignment that actually matters: a session's active bookings must never exceed its capacity, even when two requests arrive at the same instant.
 
-## Booking concurrency strategy
+**Why a frontend check can't do this.** The UI disabling its own "Book" button when `seats_remaining` hits zero only stops *that* browser. It does nothing about a second tab, a second device, or someone hitting the API directly with curl. Two requests can both read "1 seat left" before either has written anything, and both proceed to book. The frontend has no way to see another request's in-flight write — only the database can serialize that.
 
-**The invariant:** a session's active bookings can never exceed its
-capacity, even under real concurrent requests. The database is the
-authority for this — not the view, not the frontend:
+**How it's enforced:**
 
 ```mermaid
 sequenceDiagram
@@ -285,151 +174,135 @@ sequenceDiagram
     deactivate DB
 ```
 
-`B` is not rejected because of a stale flag or a retry — it is
-physically blocked at `SELECT ... FOR UPDATE` until `A`'s transaction
-resolves, so its capacity check always runs against data that already
-includes `A`'s booking. Full reasoning and the rejected alternatives
-(optimistic locking, naive check-then-insert) are in
-[DECISIONS.md](DECISIONS.md); summary:
+`create_booking()` takes a row lock on the `Session` with `select_for_update()` inside `transaction.atomic()`, then counts active bookings and checks capacity while holding that lock. A second request on the same session blocks at `SELECT ... FOR UPDATE` until the first one commits — so it can only make its decision once the first booking is already counted. That's what closes the race: there's no window where two requests both see "1 seat left."
 
-- `select_for_update()` locks the `Session` row inside
-  `transaction.atomic()` while `create_booking()` counts active
-  bookings and decides whether there's a free seat — a second
-  concurrent request on the same session blocks until the first
-  transaction commits, so it always sees the up-to-date count.
-- A **partial unique DB constraint**
-  (`unique_active_booking_per_user_session`) independently prevents the
-  same user from holding two active bookings for the same session, as
-  defense in depth.
-- Booking a session whose `start_time` has already passed is rejected.
+Two separate invariants, enforced at two separate layers, because they're different kinds of rule:
+- **Capacity** (`active bookings ≤ capacity`) is a fact about a group of rows, so it needs the transaction and the lock — a plain `CHECK` constraint can't see other rows.
+- **No duplicate active booking** (one user, one session) *is* a single-row fact, so it's also enforced by a partial unique index (`unique_active_booking_per_user_session`) directly in the database, as a backstop independent of the lock.
 
-**Proof, not assertion:**
-- `backend/apps/bookings/tests/test_concurrency.py` fires 12 real
-  concurrent HTTP requests (real threads, real DB connections,
-  synchronized with a `Barrier`) at a capacity-1 session and asserts
-  exactly one succeeds — plus a capacity-3 variant, a same-user
-  double-submit variant, and 5 repeated trials to catch flakiness.
-  **This test was verified to actually catch the bug**: temporarily
-  removing `select_for_update()` made all 12 requests succeed
-  (oversubscribing a 1-seat session 12×); restoring it brought it back
-  to exactly 1. See DEBUGGING.md/DECISIONS.md for that experiment.
-- `python manage.py prove_concurrency [--contenders N]` is a standalone,
-  test-suite-independent reproduction of the same race, runnable
-  directly:
+Full reasoning, including the alternatives that were rejected, is in [DECISIONS.md](DECISIONS.md) #1.
+
+**Proof, not just a claim:**
+- `backend/apps/bookings/tests/test_concurrency.py` fires 12 real concurrent requests (separate threads, separate DB connections, released together with a `Barrier`) at a capacity-1 session and checks exactly one succeeds — plus a capacity-3 version, a same-user double-submit version, and 5 repeated runs to catch flakiness.
+- To confirm the test actually catches the bug, `select_for_update()` was removed and the suite re-run: all 12 requests succeeded, oversubscribing a 1-seat session 12 times over. Putting the lock back brought it to exactly 1 again. See [DEBUGGING.md](DEBUGGING.md).
+- `python manage.py prove_concurrency [--contenders N]` reproduces the same race outside the test suite, against a real running server:
   ```bash
   docker compose exec backend python manage.py prove_concurrency --contenders 15
   ```
-  This was also run against the live Docker deployment via real HTTP —
-  12 simultaneous `POST /api/bookings/` from 12 distinct authenticated
-  users, through Nginx, at gunicorn's three worker processes, all
-  released at the same instant by a thread barrier. Result: **1 × `201`,
-  11 × `409 session_full`**, and the session's own API then reported
-  `seats_taken=1, capacity=1`. Separate processes, separate database
-  connections, no test harness in the loop.
+  This was also run against the live Docker stack over real HTTP — 12 concurrent `POST /api/bookings/` requests from 12 different users, through Nginx, hitting gunicorn's three worker processes. Result: 1 succeeded, 11 got `409 session_full`.
 
 ---
 
-## Tests
+## Project structure
+
+```
+backend/apps/
+  accounts/    user model, GitHub OAuth, JWT
+  catalog/     sessions
+  bookings/    booking logic + concurrency proof
+  core/        health check, permissions, error format
+
+frontend/src/
+  app/         pages (App Router)
+  components/  shared UI + session form
+  lib/         API client, auth context, types
+
+nginx/          reverse proxy config
+tools/          seed_demo.py — local demo data
+docs/           screenshots + the verification report
+```
+
+## Local setup
+
+**Prerequisites:** Docker, Docker Compose, and a GitHub account (to register an OAuth App).
+
+```bash
+cp .env.example .env
+```
+
+Fill in `DJANGO_SECRET_KEY` (any long random string — `python -c "import secrets; print(secrets.token_urlsafe(50))"` works) and a `POSTGRES_PASSWORD`, then set up GitHub OAuth below before filling in the rest.
+
+## GitHub OAuth setup
+
+Go to **github.com → Settings → Developer settings → OAuth Apps → New OAuth App** and create one with:
+
+- Homepage URL: `http://localhost:3000`
+- Authorization callback URL: `http://localhost:3000/auth/callback`
+
+Put the generated values into `.env`:
+
+```
+GITHUB_CLIENT_ID=your-client-id
+GITHUB_CLIENT_SECRET=your-client-secret
+```
+
+The client ID is public by design (it's baked into the frontend to build GitHub's authorize URL); only the secret is sensitive, and it's only ever used server-side.
+
+If you change `.env` after the stack is already running, restart alone won't pick it up — the frontend bakes these values in at build time:
+
+```bash
+docker compose up --build -d
+```
+
+## Running it
+
+```bash
+docker compose up --build
+```
+
+Open **http://localhost:3000**. Django admin is at `/admin/` — create a superuser if you want to look at the data directly:
+
+```bash
+docker compose exec backend python manage.py createsuperuser
+```
+
+## Running tests
+
+**Backend:**
 
 ```bash
 cd backend
-source .venv/bin/activate   # or: pip install -r requirements.txt into your own venv
+source .venv/bin/activate   # or pip install -r requirements.txt into your own venv
 pytest
 ```
 
 Or inside Docker: `docker compose exec backend python -m pytest`.
 
-(Most tests are pytest-style and won't be picked up by plain
-`python manage.py test`, which only discovers `TestCase`/
-`TransactionTestCase` subclasses — that command alone only runs the 4
-concurrency tests in `test_concurrency.py`. Use `pytest` for the full
-suite.)
+69 tests, covering auth (missing/invalid/expired tokens, profile updates, role changes), catalog (public read, creator-only writes, cross-creator rejection, search), bookings (success, duplicates, full sessions, cancellation, ownership), the shared error format, and the concurrency race described above.
 
-**69 backend tests**, covering:
-- Auth: missing/invalid/expired token → 401; profile update; role
-  self-service; invalid role value rejected.
-- Catalog: public read without auth; creator-only create (403 for a
-  plain user); cross-creator edit/delete rejection (403); `mine` with
-  live booking counts; server-side search; per-viewer
-  `viewer_has_booked`; capacity that can't be cut below existing
-  bookings; sessions that can't be created or moved into the past.
-- Bookings: success, duplicate-booking rejection, full-session
-  rejection, already-started rejection, cancel-then-rebook, cancel
-  frees a seat for someone else, cannot cancel another user's booking,
-  cannot cancel a booking once its session has started, a host being
-  refused a seat on their own session, malformed ids answering 404
-  rather than 500, mass-assignment probes on both write endpoints, and
-  the specific edge case where re-booking your own only seat must
-  return `duplicate_booking` rather than `session_full`.
-- **Core:** the shared error envelope returns a stable `code` even for
-  Django's generic 404s (a real bug found and fixed during a later
-  audit pass — see DEBUGGING.md #6).
-- **Concurrency:** the race tests described above, including a
-  same-user double-submit race run at capacity=1 specifically.
+**Frontend:**
 
-Two deliberately skeptical audit passes were run over this "finished"
-project before submission, each re-verifying every claim from scratch
-rather than trusting the previous pass's report, and attacking the
-running deployment with hand-crafted requests. Between them they found
-and fixed eleven real defects — including one that broke
-`docker compose up --build` for anyone who cloned the repository. Every
-one is written up in [DEBUGGING.md](DEBUGGING.md) with the symptom,
-the diagnosis, and how the fix was verified.
+```bash
+cd frontend
+npx eslint .
+npx tsc --noEmit
+npm run build
+```
 
-Frontend: `cd frontend && npx eslint . && npx tsc --noEmit && npm run
-build` — all pass clean. UI flows (catalog, login, booking, seat-count
-updates, creator dashboard, role-gated redirects) were also verified by
-driving the real running app with a headless browser against the real
-backend + Postgres, not just typechecked.
+All pass clean. UI flows were also checked by driving the real app in a browser against the real backend, not just typechecked.
 
----
+## Docker
 
-## Database persistence
+`docker compose up --build` starts four containers: `nginx`, `frontend`, `backend`, `db`. Nginx is the only one with a published port; everything else is reachable only inside the Compose network.
 
-Postgres data lives in a named Docker volume (`postgres_data`), which
-is independent of the container lifecycle. Verified directly: created
-data, ran `docker compose restart backend db` (data intact), then a
-full `docker compose down` + `up` (containers recreated, volume
-untouched, data still intact). Data is only lost with an explicit
-`docker compose down -v`.
+Postgres data lives in a named volume (`postgres_data`), independent of the containers. It survives `docker compose down` and a rebuild — only `docker compose down -v` removes it. This was checked directly: created data, tore down and rebuilt the containers, confirmed the data was still there.
 
 ---
 
 ## Known limitations
 
-- No password/email login — GitHub OAuth only, per the brief's choice
-  of provider. Losing GitHub access means losing account access.
-- No rate limiting on booking/auth endpoints. Not required by the
-  brief; would matter before any real deployment.
-- No automated end-to-end (Playwright-in-CI) test suite — UI
-  correctness was verified manually with a headless browser during
-  development, but that verification isn't wired into a repeatable
-  test target yet.
-- Deleting a session cascades its bookings away and nobody is told.
-  The confirmation dialog now names how many people are affected and
-  says plainly that Velora won't notify them, but a real product would
-  soft-cancel and email rather than delete outright.
-- No waitlist: once a session is full, the only way in is for someone
-  to cancel and for you to notice.
-- The catalog paginates at 20 per page server-side, but the frontend
-  renders only the first page — there's no "load more" yet.
-- Single Nginx origin means frontend and backend availability are
-  coupled behind one proxy; fine at this scale, worth revisiting if
-  they were ever split across hosts.
+- GitHub OAuth only — no password/email login. Losing GitHub access means losing the account.
+- No rate limiting on auth or booking endpoints.
+- No automated end-to-end browser tests in CI. UI correctness was checked manually with a real browser during development.
+- Deleting a session cancels its bookings with no notification to the people who booked. The delete confirmation names how many people are affected, but a real product would soft-cancel and email them instead.
+- No waitlist — once a session is full, the only way in is someone else cancelling.
+- The catalog paginates at 20 per page on the API, but the UI only shows the first page — no "load more" yet.
 
-## What I'd improve with another day
+## What I'd improve next
 
-- Rate limiting (DRF throttling) on auth and booking endpoints.
-- An email/notification hook on successful booking and on a creator
-  cancelling a session out from under existing bookings.
-- Pagination or infinite scroll on the catalog beyond the first page.
-- A CI workflow running the backend test suite and frontend
-  lint/typecheck/build on every push.
-- Automated visual regression coverage for the design system (the
-  responsive/contrast/functional passes described in DEBUGGING.md #7–8
-  were done manually with a real browser; a repeatable Playwright suite
-  would catch a regression the next time a component changes).
-- Filtering the catalog by date range or location, alongside the
-  free-text search that exists now.
-- Soft-cancelling a session instead of deleting it, so attendees keep a
-  record of what happened rather than the booking simply vanishing.
+- Rate limiting on auth and booking endpoints.
+- Email notification on booking, and on a creator cancelling a session that has attendees.
+- Load more / infinite scroll on the catalog.
+- A CI workflow running tests and lint on every push.
+- Automated browser tests instead of manual checks.
+- Filtering the catalog by date or location, alongside the search that's there now.

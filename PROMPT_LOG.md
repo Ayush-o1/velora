@@ -582,3 +582,19 @@ thought of. It was weak exactly where taste is required: it needed to
 be told that a landing page without social proof is better than one
 with invented social proof, and it needed to be told that its first
 mobile fix had traded one bad experience for another.
+
+---
+
+## Prompt 8 — documentation rewrite, logo, and final polish
+
+**What I asked for.** A final pass covering four things at once: rewrite the documentation to read like a normal engineer wrote it rather than an audit report, design a real logo (the current "logo" was just italic text — no mark), add a GitHub link to the site, and run the full verification again after. Explicitly ruled out: Google OAuth, and any other new feature. The instruction was blunt about scope: polish and reliability over feature count.
+
+**Documentation.** README.md was rewritten from scratch to the structure I gave — one-sentence description, key features, preview, architecture, stack, auth, booking correctness, setup, tests, limitations — cut from 435 lines to about 300, mostly by removing the meta-commentary about previous audit passes ("two deliberately skeptical audit passes were run...") that had crept in from earlier prompts and reads as the tool describing its own diligence rather than describing the product. DECISIONS.md and DEBUGGING.md were left mostly as they were: on review, both already matched the Problem/Options/Decision/Trade-off and Symptom/Diagnosis/Root-cause/Fix/Verification structure I'd asked for, and rewriting accurate, well-organized content for tone alone risked introducing an error for no real gain. I added one new entry to each — the logo decision, and this entry — rather than touching what already worked.
+
+**The logo.** The brief was specific about what to avoid: no generic sparkle icon, no gradient, nothing that looks like a stock SaaS mark. What it built is a small grid of four seats with one filled in — the same shape already used as decoration on the landing hero — so the mark and the page's existing visual language are the same idea instead of two unrelated pieces. I like this: it's tied to what the product actually does (you book one of the seats) rather than being an arbitrary pictogram, and it was checked at actual favicon size (16px, 32px) before being shipped as the site icon, not just eyeballed at the size it was designed at.
+
+**GitHub link.** Added to the footer only, as instructed — not in the navbar, to avoid cluttering it.
+
+**Verification after the changes.** Full backend suite (69 tests), Django checks, frontend lint/typecheck/build, and a Docker rebuild were all re-run after the branding and doc changes, not assumed to still pass. Results are in the final report below.
+
+**What I'd flag rather than call fully resolved:** the README is more scannable than before, but a "2–3 minute read" is optimistic for a document that still carries two Mermaid diagrams and a full concurrency explanation — I chose to keep those over cutting further, on the basis that the concurrency section is the strongest technical argument in the whole submission and trimming it to hit a time target would be the wrong trade.
