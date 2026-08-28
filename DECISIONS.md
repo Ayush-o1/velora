@@ -247,3 +247,60 @@ the platform than a library's), and no built-in portal management —
 acceptable for a single confirmation dialog in this scope; would be
 worth revisiting if the product grew several different dialog types
 with more elaborate motion.
+
+---
+
+## 6. Where each invariant is enforced, and why the layers differ
+
+Velora has three rules that must never be broken. They are enforced in
+three different places, and the difference is deliberate rather than
+accidental.
+
+| Invariant | Enforced by | Why there |
+| --- | --- | --- |
+| Active bookings ≤ capacity | `select_for_update()` on the Session row inside `transaction.atomic()` | It's an aggregate over sibling rows. A `CHECK` constraint can only see one row, and Postgres has no way to say "count these and stop at N" without something serialising access to the set. |
+| One active booking per user per session | Partial unique index on `Booking` (`unique_active_booking_per_user_session`) | It *is* a single-row fact, so the database can hold it unconditionally — independently of whether every future code path remembers to take the lock. |
+| Capacity ≥ existing bookings | Serializer validation on `Session` write | It's a decision about a *change* rather than a fact about a row: the same capacity value is legal or illegal depending on what's already booked. Expressing it as a constraint would mean a trigger; expressing it as validation gives the creator a sentence explaining why. |
+
+The pattern: put a rule in the database when the database can state it
+in one row, and in a transaction when it can't. Only put it in
+application-level validation when the rule is about an *edit*, not
+about a state.
+
+**Why the frontend is never the answer.** Every one of these is also
+reflected in the UI — a disabled button, a hidden action, a warning.
+None of that is enforcement. The booking page tells a creator "you're
+hosting this session, so there's no seat to book", and before this was
+fixed a plain `POST /api/bookings/` walked straight past that sentence
+and gave the host a seat. The UI's job is to explain the rule; the
+server's job is to hold it. The audit that found that hole is written
+up in [DEBUGGING.md](DEBUGGING.md).
+
+---
+
+## 7. What the landing page is allowed to claim
+
+Velora is a portfolio-scale product with no users, no traction and no
+testimonials. The temptation on a landing page is to borrow the shape
+of a real company's — logos, counts, quotes — because that shape is
+what looks finished.
+
+Everything on `/` is instead a literal description of behaviour the
+code actually has, and each claim maps to a test:
+
+| Claim on the page | What backs it |
+| --- | --- |
+| "exactly one of you gets it — decided in the database" | `test_capacity_one_never_oversells_under_concurrent_requests` |
+| "another creator can't touch your listing even with the right URL" | `test_creator_cannot_edit_another_creators_session` |
+| "Lowering it below the people already booked is refused" | `test_capacity_cannot_be_lowered_below_active_bookings` |
+| "Cancel any time before the session starts and the seat goes straight back" | `test_cancel_booking_frees_a_seat_for_someone_else` |
+
+The "Happening soon" section reads the real catalog rather than showing
+placeholder cards, and hides itself entirely if the API can't be
+reached — a shopfront shouldn't hand a first-time visitor an error
+banner. The hero's seat grid is ornament and deliberately states no
+number, because a number there would be a claim.
+
+The reasoning is simple: an invented statistic is the one thing on the
+page that can be checked and found false in ten seconds, and it would
+put every honest claim next to it in doubt.

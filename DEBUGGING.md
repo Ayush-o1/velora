@@ -432,3 +432,243 @@ by hand, multiple times across earlier phases) — what was missing was
 proof of it that survives a refactor. "It works when I click through
 it" and "there's a test that fails if it breaks" are different claims,
 and only the second one holds up over time.
+
+---
+
+# Third audit pass — the final hardening review
+
+The previous two passes reviewed code that had already been declared
+finished. This one started from the assignment brief rather than from
+either report, re-derived every requirement against the repository, and
+attacked the running deployment before reading any of it. It found the
+worst bug in the project's history.
+
+---
+
+## 11. `docker compose up --build` failed for everyone but me
+
+**Symptom.** None, locally. The stack built and ran fine on the machine
+it was written on, and had been demonstrated working repeatedly.
+
+**How it was found.** Not by reading code — by asking the question
+"what does the *evaluator* actually type first?" and then doing exactly
+that: cloning the repository into a scratch directory and building
+there, rather than trusting the working tree.
+
+```
+ > [runner 4/6] COPY --from=builder /app/public ./public:
+------
+ERROR: failed to compute cache key: "/app/public": not found
+```
+
+**Root cause.** `frontend/Dockerfile`'s runner stage copies `public/`
+unconditionally. `public/` existed on disk locally but was **empty**,
+and Git does not track empty directories — so it was never in a commit.
+Every clone of the repository was missing it, and the build died at that
+`COPY`. The one documented startup command in the README did not work
+for anybody who had not also been the person who created the folder.
+
+**Why it survived two audits.** Both previous passes verified Docker by
+running `docker compose up --build` in the working tree, where the
+untracked directory was sitting there. The failure only exists on the
+path nobody had tested: a clean clone.
+
+**Fix.** Two independent guards, because this class of bug is invisible
+from the machine that has the file:
+- `frontend/public/robots.txt` — a genuinely useful file, whose
+  presence keeps the directory tracked.
+- `RUN mkdir -p public` in the builder stage, so the build never
+  depends on that again.
+
+**Verification.** `git clone` into a scratch directory → `docker
+compose build` → both images built; then `up -d` → all four services
+healthy; then routing checked through Nginx for `/`, `/sessions`,
+`/api/health/`, `/admin/login/` and a static asset. All 200.
+
+**The lesson.** "It works on my machine" has a specific, testable
+meaning: the working tree is not the repository. Anything the build
+consumes must be verified from a fresh clone, not from the directory
+you built it in.
+
+---
+
+## 12. A host could book a seat on their own session
+
+**Symptom.** None visible: the session page tells a creator "you're
+hosting this session, so there's no seat to book", and hides the button.
+
+**Diagnosis.** That sentence was the *entire* enforcement. `POST
+/api/bookings/ {"session": <own session>}` returned `201` and consumed
+one of the host's own seats — on a capacity-1 session, that means the
+host silently made their own session unbookable.
+
+**Root cause.** `create_booking()` checked start time, duplicates and
+capacity, but never compared `session.creator_id` to the booking user.
+The frontend check was written first and the backend rule was never
+added behind it.
+
+**Fix.** `CannotBookOwnSessionError` in the service, returned as `403
+cannot_book_own_session`. A test asserts a *different* creator can
+still book the session, so the rule stays "you can't book your own",
+not "creators can't book".
+
+**Verification.** `test_creator_cannot_book_their_own_session`, plus a
+live `POST` through Nginx as the host: `403 cannot_book_own_session`,
+`Booking.objects.count() == 0`.
+
+---
+
+## 13. Capacity could be cut out from under people who had already booked
+
+**Symptom.** A session showing `seats_taken=5, capacity=1`.
+
+**Diagnosis.** The whole locking design exists to guarantee "active
+bookings ≤ capacity". It guards the *booking* side rigorously. Nothing
+guarded the *capacity* side: `PATCH /api/sessions/<id>/ {"capacity": 1}`
+on a session with five attendees was accepted, producing exactly the
+oversubscribed state the row lock exists to prevent — reached from the
+other direction.
+
+This was known before this pass and had been written up in the README
+as a deliberate limitation. Re-reading it against the brief, that
+defence didn't hold: the assignment's core invariant is stated
+unconditionally, and "a creator might want to right-size a listing" is
+an argument for a *clear error*, not for silently breaking it.
+
+**Fix.** Serializer validation refusing a capacity below the current
+active-booking count, with a message naming the number. Raising
+capacity, and lowering it to exactly the booking count, both still work
+— and cancelled bookings correctly don't count.
+
+**Verification.** Four tests covering refuse / raise / lower-to-exact /
+cancelled-don't-count, plus a live `PATCH` through Nginx returning
+`400` with a sentence the UI renders as-is (screenshot in the report).
+
+---
+
+## 14. `DELETE /api/bookings/abc/` returned a 500
+
+**Symptom.** A stack trace and `500 Internal Server Error` for a plainly
+malformed URL.
+
+**Diagnosis.** DRF's router lookup regex is `[^/.]+` — it matches any
+non-slash segment, not just digits. `BookingViewSet.destroy` passed the
+captured `pk` straight to `Booking.objects.get(pk=pk)`, and Django
+raised `ValueError: Field 'id' expected a number but got 'abc'`, which
+no exception handler was catching.
+
+The catalog viewset was immune to the identical URL shape purely by
+luck: DRF's `get_object_or_404` wrapper already catches `ValueError` and
+re-raises `Http404`. The bookings viewset uses a service function
+instead of a generic, so it never got that protection.
+
+**Fix.** Parse the id explicitly; an id that *cannot* exist gets the
+same 404 as an id that merely doesn't.
+
+**Verification.** `test_malformed_booking_id_returns_404_not_500`, plus
+the live request through Nginx: `404 booking_not_found`.
+
+---
+
+## 15. A deactivated account could keep minting access tokens
+
+**Diagnosis.** DRF's `JWTAuthentication` refuses an access token whose
+user is inactive. But `/api/auth/refresh/` doesn't go through
+`JWTAuthentication` — it reads the cookie and resolves the user itself,
+with `User.objects.get(pk=...)` and no `is_active` filter. A disabled
+account could therefore keep exchanging its refresh cookie for fresh
+access tokens for the full seven-day refresh lifetime.
+
+**Fix.** `User.objects.get(pk=..., is_active=True)`; the existing
+`User.DoesNotExist` branch already returns `401` and clears the cookie.
+
+**Verification.** `test_deactivated_user_cannot_refresh`.
+
+---
+
+## 16. Validation errors reached users as a JSON blob
+
+**Symptom.** Submitting an invalid session form showed the user the
+literal text `{"capacity":["Capacity must be at least 1."]}`.
+
+**Diagnosis.** DRF returns field errors as a nested object. The
+envelope passed that through untouched as `detail`, and the frontend
+renders `detail` as the message — so `api-client.ts` fell back to
+`JSON.stringify` on a non-string. Neither side was wrong on its own;
+the contract between them was never specified for this case.
+
+**Fix.** The exception handler flattens field errors into a sentence
+("Capacity: 3 people have already booked…") while preserving the
+structure under a new `fields` key, so a form can still bind messages
+to inputs.
+
+**Verification.** `test_validation_errors_are_flattened_into_a_readable_sentence`
+asserts `detail` is a string with no `{` in it, and that `fields` still
+carries every field. Screenshot of the rendered message in the report.
+
+---
+
+## 17. Nginx served 502s after a single service was rebuilt
+
+**Symptom.** After `docker compose up -d --build frontend`, every page
+returned `502 Bad Gateway`. Restarting Nginx fixed it.
+
+**Diagnosis.** An `upstream { server frontend:3000; }` block resolves
+its hostname **once, at startup**, and caches the address for the life
+of the process. Recreating the frontend container gives it a new IP;
+Nginx went on proxying to an address that no longer existed.
+
+**Fix.** Target the upstream through a variable with Docker's embedded
+resolver (`resolver 127.0.0.11 valid=10s`), which forces a re-resolve.
+`$request_uri` has to be appended explicitly, since a `proxy_pass`
+containing a variable stops forwarding the URI on its own.
+
+**Verification.** `docker compose up -d --force-recreate frontend` with
+Nginx deliberately left untouched → `/sessions` still `200`.
+
+---
+
+## 18. Next.js was listening on exactly one interface
+
+**Diagnosis.** Found while adding a Compose healthcheck for the
+frontend, which failed every time. Next's standalone server binds to
+`$HOSTNAME`, and Docker sets that to the container id — so the server
+listened on the container's own IP and nothing, healthcheck included,
+could reach it on `localhost`. Nginx was unaffected because it connects
+by container IP, which is why this was invisible until something inside
+the container tried.
+
+**Fix.** `ENV HOSTNAME=0.0.0.0` in the runner stage.
+
+**Verification.** `docker compose ps` reports the frontend `(healthy)`;
+Nginx now waits on that health rather than on the container merely
+having started.
+
+---
+
+## 19. Three things that were only visible by looking at the pages
+
+Found by rendering every page at desktop, tablet and phone widths and
+actually reading them, rather than by testing.
+
+**a. On a phone, the booking button was below everything.** The session
+page's two-column desktop layout collapses to one column, putting the
+booking panel after the entire description — the primary action on the
+page required a full scroll. The first fix moved it to the top, which
+was worse: it asked people to book something they hadn't been told the
+name of yet. The shipped layout places the three blocks explicitly per
+breakpoint: title, then panel, then description.
+
+**b. Bookings were listed in the order they were booked.** `Booking`'s
+default ordering is `-created_at`, so "My bookings" could show next week
+above tomorrow. Upcoming now orders by session start; past runs
+newest-first.
+
+**c. The datetime input clipped its own value.** In a 512px form split
+into three columns, the native `datetime-local` control had ~150px and
+rendered `31/08/2026, 0(`. Start time now takes a full-width row.
+
+**d. The same timestamp appeared twice.** The session page printed the
+absolute start time as its eyebrow and again in the booking panel two
+inches away. The eyebrow is now a relative dateline ("In 4 days"),
+which says something the panel doesn't.

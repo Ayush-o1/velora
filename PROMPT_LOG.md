@@ -478,3 +478,107 @@ loop over "generate and assume," repeated across five separate passes
 on this project (initial build, audit, redesign,
 architecture/presentation, OAuth verification) rather than just the
 first one.
+
+---
+
+## Prompt 7 — final hardening review before submission
+
+**What I asked for.** A single long brief instructing the model to act
+as its own harshest reviewer across every role at once — backend,
+frontend, QA, security, DevOps, product, interviewer — with explicit
+instructions to *re-read the original assignment and audit the
+repository against it directly*, rather than trusting either previous
+completion report. I told it not to optimise for telling me the project
+was finished, to fix what it found rather than only listing it, and to
+verify each fix rather than asserting it. I also asked it to seriously
+consider whether a real landing page was worth building, and to produce
+a final evidence PDF at the end.
+
+**Why I framed it that way.** The two earlier passes had each ended
+with "everything verified". That is exactly the state in which a report
+stops being useful — a third pass that started from those reports would
+have re-confirmed them. Starting from the brief instead is what turned
+up the `frontend/public` bug, which had been invisible to two audits
+that both tested Docker in the working tree.
+
+### What it found that I would not have
+
+The single most valuable finding was procedural, not technical: it
+tested `docker compose up --build` **from a fresh `git clone`** rather
+than from the working directory. That is the one thing an evaluator
+does that a developer never does, and it exposed a build that was
+broken for every person on earth except me. Nothing in the code looked
+wrong; the repository was simply missing a directory that Git cannot
+track. See DEBUGGING.md #11.
+
+The rest of the pass followed the same pattern — attack the running
+system, not the source:
+
+- 12 real concurrent HTTP bookings fired through Nginx at gunicorn,
+  rather than re-reading the locking code.
+- A live probe suite (role escalation, cross-creator ownership, token
+  tampering, mass assignment, malformed ids) run against the deployed
+  stack, which is how the `500` on `DELETE /api/bookings/abc/` and the
+  host-books-own-session hole surfaced.
+- Every page rendered at three widths and looked at, which is how the
+  mobile booking button, the out-of-order bookings list and the clipped
+  datetime input surfaced. None of those would fail a test.
+
+### Where I pushed back
+
+**On the capacity limitation.** The README already documented "a
+creator can lower capacity below existing bookings" as a deliberate
+limitation, with a reasonable-sounding defence. I told the model that
+an argument for why a bug is acceptable is not the same as the bug
+being acceptable, and that the assignment states the invariant
+unconditionally. It agreed, implemented the check, and rewrote the
+README entry. I'd rather a limitations list be short and true than long
+and self-justifying.
+
+**On the landing page's claims.** My instruction was explicit: no
+invented testimonials, logos, ratings, user counts or traction. The
+model's first instinct on a marketplace landing page is the shape of a
+real company's — and that shape is mostly social proof. What shipped
+instead describes only behaviour the code actually has, and DECISIONS.md
+#7 maps each claim on the page to the test that backs it. The hero
+ornament deliberately shows no number, because a number would be a
+claim.
+
+**On the first mobile fix.** It moved the booking panel to the top of
+the session page, which technically solved "the CTA is below the fold"
+and created a worse problem — being asked to book something before
+being told its name. I rejected that and it re-did the layout with
+explicit per-breakpoint placement. Worth recording: the model optimised
+the metric it had been given rather than the experience, which is a
+failure mode to watch for whenever you state a UI problem as a rule.
+
+**On adding dependencies.** WhiteNoise was the one new package accepted
+this pass, because the Django admin was genuinely rendering unstyled
+behind Nginx with `DEBUG=False` and nothing had run `collectstatic`.
+`django-filter` went the other way — it was in `INSTALLED_APPS` with a
+`filterset_fields = []` that no filter backend ever read. Dead
+configuration that looks like a feature is worse than no feature, so it
+was removed and replaced with search that actually works.
+
+### What I still checked myself
+
+- That the fresh-clone Docker build genuinely failed before the fix and
+  genuinely passes after it — I ran both.
+- That the concurrency test can actually fail: `select_for_update()`
+  was removed on purpose, the race tests were re-run (a capacity-1
+  session sold 6 and then 9 seats), and the lock was restored. A
+  passing test proves nothing until you have watched it fail.
+- That no secret is in the repository or its history, and that `.env`
+  is ignored.
+- Every screenshot in the evidence report is a real page from the real
+  running stack. Nothing was mocked, and no "successful" state was
+  staged that the app doesn't actually produce.
+
+**The honest summary of AI's role here:** it was very good at breadth
+and at the mechanical discipline of verification — running the same
+check from a different starting point, doing the revert-and-reconfirm
+experiment, probing twenty endpoints instead of the three I'd have
+thought of. It was weak exactly where taste is required: it needed to
+be told that a landing page without social proof is better than one
+with invented social proof, and it needed to be told that its first
+mobile fix had traded one bad experience for another.

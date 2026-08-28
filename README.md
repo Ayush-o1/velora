@@ -29,18 +29,26 @@ verified as part of building this project, not left for you to check.
 
 <table>
 <tr>
-<td width="55%"><img src="docs/screenshots/catalog.png" alt="Catalog page: a grid of session cards with dateline, host, and seats-remaining"></td>
-<td><img src="docs/screenshots/session-detail.png" alt="Session detail page: content on the left, a sticky booking panel on the right"></td>
+<td width="50%"><img src="docs/screenshots/landing.png" alt="Velora landing page: an editorial hero reading 'Book a seat in the room where the work actually happens', followed by how-it-works steps and a live preview of upcoming sessions"></td>
+<td><img src="docs/screenshots/catalog.png" alt="Catalog page: a searchable grid of session cards showing dateline, host, and seats remaining"></td>
 </tr>
 <tr>
-<td>Catalog — editorial datelines, live seat counts, no auth required.</td>
-<td>Session detail — booking panel is sticky and always the clearest thing on the page.</td>
+<td>Landing — what Velora is, before you're asked to sign in.</td>
+<td>Catalog — server-side search, live seat counts, no auth required.</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/session-detail.png" alt="Session detail page: content on the left, a sticky booking panel on the right showing the viewer already holds a seat"></td>
+<td><img src="docs/screenshots/creator-dashboard.png" alt="Creator dashboard: a summary of sessions hosted, upcoming and seats booked, above a list of the creator's own sessions"></td>
+</tr>
+<tr>
+<td>Session detail — the panel knows whether <em>you</em> already hold a seat.</td>
+<td>Creator dashboard — live booking counts against capacity.</td>
 </tr>
 </table>
 
-Captured against the real running stack with seeded demo data, then
-the data was cleared — the deployment you'll run starts genuinely
-empty, as described above.
+Captured against the real running stack with the demo data in
+`tools/seed_demo.py`. A deployment you start yourself begins genuinely
+empty; run that script if you want the same data to look at.
 
 ---
 
@@ -48,17 +56,28 @@ empty, as described above.
 
 ```mermaid
 flowchart TD
-    Browser(["Browser"])
-    Nginx["Nginx — :3000\nsingle public entrypoint"]
-    Frontend["frontend\nNext.js (App Router)"]
-    Backend["backend\nDjango + DRF"]
-    DB[("db\nPostgreSQL 16\nnamed volume: postgres_data")]
+    Browser(["Browser<br/>localhost:3000"])
+    Nginx["<b>nginx</b><br/>the only published port"]
+    Frontend["<b>frontend</b><br/>Next.js 16 · standalone<br/>:3000 internal"]
+    Backend["<b>backend</b><br/>Django 5 + DRF · gunicorn<br/>:8000 internal"]
+    DB[("<b>db</b><br/>PostgreSQL 16<br/>volume: postgres_data")]
+    GitHub{{"GitHub OAuth"}}
 
     Browser -->|HTTP| Nginx
-    Nginx -->|"/api/*, /admin/*, /static/*"| Backend
-    Nginx -->|"everything else"| Frontend
-    Backend -->|SQL| DB
+    Nginx -->|"/api/ · /admin/ · /static/"| Backend
+    Nginx -->|"pages, /_next/"| Frontend
+    Backend -->|"SQL · row locks"| DB
+    Backend <-.->|"code exchange<br/>server-side only"| GitHub
+
+    classDef svc fill:#e5ede7,stroke:#1f4d3d,color:#211f1a;
+    classDef ext fill:#f3efe5,stroke:#d8cfba,color:#57534a;
+    class Nginx,Frontend,Backend,DB svc;
+    class GitHub,Browser ext;
 ```
+
+Frontend and backend are never published directly — only Nginx binds a
+host port, so everything shares one origin. The client secret lives on
+the backend and is used in exactly one place, the dashed edge above.
 
 Four Docker Compose services — `nginx`, `frontend`, `backend`, `db` —
 each with one job. Nginx is the single entrypoint the browser talks
@@ -75,9 +94,9 @@ deliberately, not by default).
   the concurrency proof (`prove_concurrency` management command).
 - `core` — health check, shared permissions, uniform API error envelope.
 
-**Frontend** (`frontend/src/`): catalog, session detail + booking,
-login + OAuth callback, profile, booking history, creator dashboard +
-session CRUD forms. `src/lib/auth-context.tsx` and `api-client.ts` hold
+**Frontend** (`frontend/src/`): landing page (`/`), searchable catalog
+(`/sessions`), session detail + booking, login + OAuth callback,
+profile, booking history, creator dashboard + session CRUD forms. `src/lib/auth-context.tsx` and `api-client.ts` hold
 the auth/token machinery; every other page is a thin consumer of it.
 `src/components/ui/` holds the shared design-system primitives (`Button`,
 `Card`, `Dialog`, `Tabs`, form fields) every page is built from.
@@ -297,9 +316,13 @@ includes `A`'s booking. Full reasoning and the rejected alternatives
   ```bash
   docker compose exec backend python manage.py prove_concurrency --contenders 15
   ```
-  This was also run against the live Docker deployment via real HTTP
-  requests through Nginx (10 concurrent `curl` requests at a
-  capacity-1 session): exactly 1 `201`, 9 `409 session_full`.
+  This was also run against the live Docker deployment via real HTTP —
+  12 simultaneous `POST /api/bookings/` from 12 distinct authenticated
+  users, through Nginx, at gunicorn's three worker processes, all
+  released at the same instant by a thread barrier. Result: **1 × `201`,
+  11 × `409 session_full`**, and the session's own API then reported
+  `seats_taken=1, capacity=1`. Separate processes, separate database
+  connections, no test harness in the loop.
 
 ---
 
@@ -319,30 +342,36 @@ Or inside Docker: `docker compose exec backend python -m pytest`.
 concurrency tests in `test_concurrency.py`. Use `pytest` for the full
 suite.)
 
-**41 backend tests**, covering:
+**69 backend tests**, covering:
 - Auth: missing/invalid/expired token → 401; profile update; role
   self-service; invalid role value rejected.
 - Catalog: public read without auth; creator-only create (403 for a
   plain user); cross-creator edit/delete rejection (403); `mine` with
-  live booking counts.
+  live booking counts; server-side search; per-viewer
+  `viewer_has_booked`; capacity that can't be cut below existing
+  bookings; sessions that can't be created or moved into the past.
 - Bookings: success, duplicate-booking rejection, full-session
   rejection, already-started rejection, cancel-then-rebook, cancel
   frees a seat for someone else, cannot cancel another user's booking,
-  cannot cancel a booking once its session has started, and the
-  specific edge case where re-booking your own only seat must return
-  `duplicate_booking` rather than `session_full`.
+  cannot cancel a booking once its session has started, a host being
+  refused a seat on their own session, malformed ids answering 404
+  rather than 500, mass-assignment probes on both write endpoints, and
+  the specific edge case where re-booking your own only seat must
+  return `duplicate_booking` rather than `session_full`.
 - **Core:** the shared error envelope returns a stable `code` even for
   Django's generic 404s (a real bug found and fixed during a later
   audit pass — see DEBUGGING.md #6).
 - **Concurrency:** the race tests described above, including a
   same-user double-submit race run at capacity=1 specifically.
 
-A second, deliberately skeptical audit pass was run over this
-"finished" project before submission — re-verifying every claim rather
-than trusting the first pass's report, and attacking the live
-deployment directly with hand-crafted requests. It found and fixed
-three more real bugs (all with revert-and-reconfirm verification); see
-DEBUGGING.md #4–6 and PROMPT_LOG.md's "what AI got wrong" section.
+Two deliberately skeptical audit passes were run over this "finished"
+project before submission, each re-verifying every claim from scratch
+rather than trusting the previous pass's report, and attacking the
+running deployment with hand-crafted requests. Between them they found
+and fixed eleven real defects — including one that broke
+`docker compose up --build` for anyone who cloned the repository. Every
+one is written up in [DEBUGGING.md](DEBUGGING.md) with the symptom,
+the diagnosis, and how the fix was verified.
 
 Frontend: `cd frontend && npx eslint . && npx tsc --noEmit && npm run
 build` — all pass clean. UI flows (catalog, login, booking, seat-count
@@ -373,14 +402,14 @@ untouched, data still intact). Data is only lost with an explicit
   correctness was verified manually with a headless browser during
   development, but that verification isn't wired into a repeatable
   test target yet.
-- Session capacity/time can't be edited down below existing active
-  bookings without an explicit conflict check — a creator could set
-  `capacity` below the current booking count via `PATCH`, which the API
-  doesn't currently reject (a booking can never be *created* past
-  capacity, but a creator can't accidentally be prevented from
-  right-sizing a listing after the fact either, since it's a
-  legitimate edit and the assignment doesn't specify a required
-  behavior here).
+- Deleting a session cascades its bookings away and nobody is told.
+  The confirmation dialog now names how many people are affected and
+  says plainly that Velora won't notify them, but a real product would
+  soft-cancel and email rather than delete outright.
+- No waitlist: once a session is full, the only way in is for someone
+  to cancel and for you to notice.
+- The catalog paginates at 20 per page server-side, but the frontend
+  renders only the first page — there's no "load more" yet.
 - Single Nginx origin means frontend and backend availability are
   coupled behind one proxy; fine at this scale, worth revisiting if
   they were ever split across hosts.
@@ -390,16 +419,14 @@ untouched, data still intact). Data is only lost with an explicit
 - Rate limiting (DRF throttling) on auth and booking endpoints.
 - An email/notification hook on successful booking and on a creator
   cancelling a session out from under existing bookings.
-- Pagination/infinite-scroll polish on the catalog and a search/filter
-  by date or creator.
+- Pagination or infinite scroll on the catalog beyond the first page.
 - A CI workflow running the backend test suite and frontend
   lint/typecheck/build on every push.
-- Explicit handling for a creator lowering `capacity` below the current
-  active-booking count (surface a warning rather than silently allowing
-  it).
 - Automated visual regression coverage for the design system (the
   responsive/contrast/functional passes described in DEBUGGING.md #7–8
   were done manually with a real browser; a repeatable Playwright suite
   would catch a regression the next time a component changes).
-- Catalog search/filter by date, location, or creator — the design
-  already has room for it above the grid, but it wasn't in scope here.
+- Filtering the catalog by date range or location, alongside the
+  free-text search that exists now.
+- Soft-cancelling a session instead of deleting it, so attendees keep a
+  record of what happened rather than the booking simply vanishing.
