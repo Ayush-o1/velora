@@ -1,6 +1,6 @@
 # Velora
 
-A small marketplace for live sessions: creators publish a time and a seat count, people book one of the seats.
+A full-stack sessions marketplace: creators publish a time and a seat count, people discover and book one of the seats — with booking correctness enforced by the database, not just the UI.
 
 Built as a full-stack take-home assignment. The focus is on getting the hard part — booking under concurrent load — provably correct, and on backend authorization that actually holds up when you try to break it, rather than on adding extra features.
 
@@ -9,11 +9,15 @@ Built as a full-stack take-home assignment. The focus is on getting the hard par
 - **Auth:** GitHub OAuth → backend-issued JWT (access + refresh)
 - **Infra:** Docker Compose — Nginx, frontend, backend, Postgres
 
-Related docs: [DECISIONS.md](DECISIONS.md) (why things are built this way), [DEBUGGING.md](DEBUGGING.md) (real bugs, how they were found and fixed), [PROMPT_LOG.md](PROMPT_LOG.md) (how AI was used), [final verification report](docs/VELORA_FINAL_VERIFICATION_REPORT.pdf) (every requirement checked against evidence).
+Related docs: [DECISIONS.md](DECISIONS.md) (why things are built this way), [DEBUGGING.md](DEBUGGING.md) (real bugs, how they were found and fixed), [PROMPT_LOG.md](PROMPT_LOG.md) (how AI was used), [DEPLOYMENT.md](DEPLOYMENT.md) (the optional public deployment), [final verification report](docs/VELORA_FINAL_VERIFICATION_REPORT.pdf) (every requirement checked against evidence).
 
 **One manual step before this runs end to end:** you need to create a GitHub OAuth App and put its credentials in `.env`. There's no API for creating one, so it can't be scripted. See [GitHub OAuth setup](#github-oauth-setup) below.
 
 ---
+
+## Why Velora
+
+Booking systems look simple until two people try to take the last seat at the same instant. Most take-home projects either skip that case or handle it in application code, where it's easy to get wrong under real concurrent load. Velora exists to answer one question properly: when the frontend, the network, and two browser tabs can all lie about what happened first, what still guarantees a session never oversells? The answer here is enforced in PostgreSQL, not assumed — see [Booking correctness](#booking-correctness) below.
 
 ## What it does
 
@@ -25,12 +29,23 @@ Three roles, one app:
 
 ## Key features
 
-- Public catalog with server-side search (title, description, location, host)
-- Session booking with **real concurrency safety** — a capacity-1 session cannot be double-booked, proven under load, not just asserted
+**For users**
+- GitHub sign-in — no password to create, none to forget
+- Browse and search the catalog without an account (title, description, location, host)
+- Book a seat, cancel it, see upcoming vs. past bookings
+- Each session page surfaces other upcoming sessions from the same host
+
+**For creators**
+- Create, edit, and delete your own sessions — self-service, no waitlist to become a creator
+- A dashboard with live booking counts per session
+- Ownership enforced server-side: another creator can't touch your session even with the right URL
+- A capacity floor — you can't shrink a session below the people already booked
+
+**Engineering**
+- Real concurrency safety on booking — a capacity-1 session cannot be double-booked, proven under load, not just asserted
 - GitHub OAuth → JWT access token (in memory) + refresh token (httpOnly cookie)
-- Backend-enforced authorization: a user can't touch creator-only endpoints, a creator can't edit someone else's session, checked server-side either way
-- A capacity floor — you can't shrink a session below the number of people already booked
-- A session page surfaces other upcoming sessions from the same host, so browsing doesn't dead-end at one page
+- Backend-enforced authorization on every write, checked server-side regardless of what the UI shows
+- Docker Compose (Nginx, frontend, backend, Postgres), 70 automated backend tests
 - Custom visual design (see [DECISIONS.md](DECISIONS.md) #4) instead of default component-library styling
 
 ## Product preview
@@ -45,11 +60,11 @@ Three roles, one app:
 <td>Catalog — search, live seat counts, no login required</td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/session-detail.png" alt="Session detail page with booking panel"></td>
+<td><img src="docs/screenshots/session-detail.png" alt="Session detail page with real-time availability and other sessions from the same host"></td>
 <td><img src="docs/screenshots/creator-dashboard.png" alt="Creator dashboard"></td>
 </tr>
 <tr>
-<td>Session detail — knows if you've already booked</td>
+<td>Session detail — real-time seats, plus other sessions from the host</td>
 <td>Creator dashboard — live counts against capacity</td>
 </tr>
 </table>
@@ -269,7 +284,7 @@ pytest
 
 Or inside Docker: `docker compose exec backend python -m pytest`.
 
-69 tests, covering auth (missing/invalid/expired tokens, profile updates, role changes), catalog (public read, creator-only writes, cross-creator rejection, search), bookings (success, duplicates, full sessions, cancellation, ownership), the shared error format, and the concurrency race described above.
+70 tests, covering auth (missing/invalid/expired tokens, profile updates, role changes), catalog (public read, creator-only writes, cross-creator rejection, search, creator filtering), bookings (success, duplicates, full sessions, cancellation, ownership), the shared error format, and the concurrency race described above.
 
 **Frontend:**
 
