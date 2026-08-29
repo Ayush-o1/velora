@@ -306,3 +306,15 @@ def test_catalog_search_matches_title_description_location_and_host(
 
     no_match = api_client.get("/api/sessions/?search=zzzznothing")
     assert no_match.json()["count"] == 0
+
+
+@pytest.mark.django_db
+def test_catalog_can_be_filtered_by_creator(api_client, creator, other_creator, make_session):
+    make_session(owner=creator, title="Hosted by first creator")
+    make_session(owner=other_creator, title="Hosted by second creator")
+
+    filtered = api_client.get(f"/api/sessions/?creator={creator.id}")
+    assert [s["title"] for s in filtered.json()["results"]] == ["Hosted by first creator"]
+
+    no_match = api_client.get("/api/sessions/?creator=999999")
+    assert no_match.json()["count"] == 0

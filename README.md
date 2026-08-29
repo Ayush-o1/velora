@@ -30,6 +30,7 @@ Three roles, one app:
 - GitHub OAuth → JWT access token (in memory) + refresh token (httpOnly cookie)
 - Backend-enforced authorization: a user can't touch creator-only endpoints, a creator can't edit someone else's session, checked server-side either way
 - A capacity floor — you can't shrink a session below the number of people already booked
+- A session page surfaces other upcoming sessions from the same host, so browsing doesn't dead-end at one page
 - Custom visual design (see [DECISIONS.md](DECISIONS.md) #4) instead of default component-library styling
 
 ## Product preview

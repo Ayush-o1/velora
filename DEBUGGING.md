@@ -672,3 +672,17 @@ rendered `31/08/2026, 0(`. Start time now takes a full-width row.
 absolute start time as its eyebrow and again in the booking panel two
 inches away. The eyebrow is now a relative dateline ("In 4 days"),
 which says something the panel doesn't.
+
+**e. The session detail page was mostly empty air.** At desktop width, a
+session with a short (or even a normal two-paragraph) description left
+roughly 400px of blank page between the content and the footer — the
+two-column layout has nothing to size itself against once the
+description ends. Found by screenshotting several real sessions, not
+just the one used during development, which happened to have an
+unusually long description that hid the problem. Fixed by adding a
+"More from this host" section below the fold, backed by a small,
+genuinely new `?creator=<id>` filter on `/api/sessions/` (with its own
+test) rather than a client-side workaround — it fills the space with
+something a visitor would actually want (other sessions worth
+browsing) instead of decorative padding, and only appears when the
+host actually has other upcoming sessions to show.

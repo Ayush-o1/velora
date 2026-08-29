@@ -53,6 +53,9 @@ class SessionViewSet(viewsets.ModelViewSet):
                 )
             if self.request.query_params.get("upcoming") == "true":
                 qs = qs.filter(start_time__gt=timezone.now())
+            creator_id = self.request.query_params.get("creator")
+            if creator_id:
+                qs = qs.filter(creator_id=creator_id)
 
         return qs.order_by("start_time")
 

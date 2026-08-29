@@ -10,6 +10,7 @@ import { Avatar, Alert, Badge, Card, PageSpinner } from "@/components/ui/Surface
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { SessionCard } from "@/components/SessionCard";
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -30,6 +31,7 @@ export default function SessionDetailPage() {
   const [booking, setBooking] = useState(false);
   const [justBooked, setJustBooked] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [moreFromHost, setMoreFromHost] = useState<SessionItem[] | null>(null);
 
   const load = useCallback(() => {
     sessionsApi
@@ -46,6 +48,28 @@ export default function SessionDetailPage() {
   useEffect(() => {
     if (status !== "loading") load();
   }, [status, load]);
+
+  // A short description otherwise leaves the two-column layout with a lot
+  // of empty space below it. Other upcoming sessions from the same host
+  // fill that space with something a visitor would actually want —
+  // discovery, not a spacer.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    sessionsApi
+      .list({ upcoming: true, creator: session.creator.id })
+      .then((data) => {
+        if (cancelled) return;
+        setMoreFromHost(data.results.filter((s) => s.id !== session.id).slice(0, 3));
+      })
+      .catch(() => {
+        if (!cancelled) setMoreFromHost([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
 
   const handleBook = async () => {
     if (status !== "authenticated") {
@@ -206,6 +230,19 @@ export default function SessionDetailPage() {
           </Card>
         </aside>
       </div>
+
+      {moreFromHost && moreFromHost.length > 0 && (
+        <div className="mt-14 border-t border-border pt-10">
+          <h2 className="font-display text-[20px] text-ink">
+            More from {session.creator.username}
+          </h2>
+          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {moreFromHost.map((s) => (
+              <SessionCard key={s.id} session={s} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

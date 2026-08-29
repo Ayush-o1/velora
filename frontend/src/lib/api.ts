@@ -2,10 +2,11 @@ import { apiFetch } from "./api-client";
 import type { Booking, Paginated, SessionItem, SessionWritePayload } from "./types";
 
 export const sessionsApi = {
-  list: (params?: { upcoming?: boolean; search?: string }) => {
+  list: (params?: { upcoming?: boolean; search?: string; creator?: number }) => {
     const qs = new URLSearchParams();
     if (params?.upcoming) qs.set("upcoming", "true");
     if (params?.search) qs.set("search", params.search);
+    if (params?.creator) qs.set("creator", String(params.creator));
     const query = qs.toString();
     return apiFetch<Paginated<SessionItem>>(`/api/sessions/${query ? `?${query}` : ""}`);
   },

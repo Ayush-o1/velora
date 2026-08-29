@@ -332,3 +332,16 @@ put every honest claim next to it in doubt.
 **Why this is the right call.** Render's own free Postgres, wired into the web service via `render.yaml`'s `fromDatabase`, keeps everything in one platform and one dashboard for a demo deployment that doesn't need to be enterprise-grade — it needs to be honest about what it is. Vercel hosts the frontend because it's Next.js's own platform; no Dockerfile involved there at all.
 
 **Trade-off.** Render's free Postgres expires 30 days after creation. For a long-lived production service that would be disqualifying; for a demo whose purpose is "can be opened and clicked through," it's an acceptable, clearly documented limitation (see [DEPLOYMENT.md](DEPLOYMENT.md)) rather than a hidden one.
+
+## 10. Filtering sessions by creator: a backend query param, not a client-side workaround
+
+**Problem.** The session detail page needed to show other upcoming sessions from the same host — both a real discovery feature and the fix for a layout defect (see [DEBUGGING.md](DEBUGGING.md) #19e). There was no existing way to ask the API for "sessions by this creator" other than `?search=<username>`, which also matches the username appearing incidentally in a title, description, or location.
+
+**Options considered.**
+- **Reuse `?search=<username>`.** Works today, but is matching on a coincidence (the search field happening to contain the right substring), not on identity. A creator named "max" would pull in any session mentioning "max" in its description.
+- **Fetch everything and filter by `creator.id` in the browser.** No backend change at all, but means downloading every upcoming session just to keep three, and it stops being correct the moment the catalog is larger than one page — which the catalog already is not, elsewhere in this app (see the pagination limitation in the README), so repeating that same shortcut here would have compounded an existing, already-acknowledged gap instead of just leaving it alone.
+- **Add a real `?creator=<id>` filter to `GET /api/sessions/`.** Chosen. Three lines in `get_queryset`, filtering on the actual foreign key, with its own test.
+
+**Why this is the right call.** It answers the actual question ("sessions by this specific creator") instead of a proxy for it, doesn't shift a data-correctness problem onto the frontend, and cost about as much to build correctly as it would have to build as a workaround.
+
+**Trade-off.** None significant — this is the kind of change where the "right" and "fast" answers were the same size.
