@@ -319,3 +319,16 @@ put every honest claim next to it in doubt.
 **Why this is the right mark.** It's tied directly to what the product does — you book one of the seats — rather than being decoration. It holds up at favicon size (checked by rendering it at 16px and 32px before shipping it). The filled seat is fixed to the brand accent color regardless of surrounding text color, so it reads the same way in the nav, the footer, and the login page.
 
 **Trade-off.** It's a geometric mark, not a lettermark, so it doesn't carry the kind of instant "V for Velora" recognition a monogram would. Traded for something that actually means something and is harder to mistake for a stock icon.
+
+## 9. Public deployment: Render's Dockerfile builds, not a parallel config
+
+**Problem.** The Docker Compose setup is the required submission, but it can't be opened from a link — you have to clone the repo and run it. A public demo needed hosting, without maintaining two different descriptions of how the backend builds and starts.
+
+**Options considered.**
+- **Render's native Python runtime** (buildpack-style, no Dockerfile). Rejected — it means writing a second build/start recipe that has to be kept in sync with `backend/Dockerfile` by hand, and the two would drift the first time either one changes.
+- **A managed Postgres add-on from a different provider than the app host**, to shop for the cheapest free tier. Rejected as unnecessary complexity for a demo — one more account, one more set of credentials, one more thing that can silently expire without being noticed.
+- **Point Render's Docker runtime straight at `backend/Dockerfile`.** Chosen. The exact image that runs in Docker Compose locally is what runs in production — same collectstatic step, same gunicorn entrypoint, same dependency versions. One Dockerfile, two places it runs.
+
+**Why this is the right call.** Render's own free Postgres, wired into the web service via `render.yaml`'s `fromDatabase`, keeps everything in one platform and one dashboard for a demo deployment that doesn't need to be enterprise-grade — it needs to be honest about what it is. Vercel hosts the frontend because it's Next.js's own platform; no Dockerfile involved there at all.
+
+**Trade-off.** Render's free Postgres expires 30 days after creation. For a long-lived production service that would be disqualifying; for a demo whose purpose is "can be opened and clicked through," it's an acceptable, clearly documented limitation (see [DEPLOYMENT.md](DEPLOYMENT.md)) rather than a hidden one.

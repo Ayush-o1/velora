@@ -17,6 +17,13 @@ services:
       - key: DJANGO_SECRET_KEY
         generateValue: true
 
+      # The free plan caps the whole container at 512MB. 3 workers (the
+      # local Docker Compose default, unchanged) idled at ~215MB in testing
+      # — safe on a dev machine, too close to the ceiling under real
+      # request load on the free plan. 2 leaves headroom.
+      - key: WEB_CONCURRENCY
+        value: "2"
+
       # Fixed production values. Local dev keeps its own separate values in .env.
       - key: DEBUG
         value: "False"

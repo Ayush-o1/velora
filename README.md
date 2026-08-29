@@ -287,6 +287,12 @@ All pass clean. UI flows were also checked by driving the real app in a browser 
 
 Postgres data lives in a named volume (`postgres_data`), independent of the containers. It survives `docker compose down` and a rebuild — only `docker compose down -v` removes it. This was checked directly: created data, tore down and rebuilt the containers, confirmed the data was still there.
 
+## Live demo
+
+The Docker Compose setup above is the required submission and the one every claim in this README is checked against. A public deployment (Vercel + Render, so it can be opened without cloning anything) is prepared but not live yet — creating the hosting accounts and a second, production GitHub OAuth App are manual steps that need a human in front of a browser, not something a script can do.
+
+Full architecture, exact environment variables, and the free-tier limitations (Render's free Postgres is disposable — it expires 30 days after creation) are in [DEPLOYMENT.md](DEPLOYMENT.md). Once it's live, the URL goes here.
+
 ---
 
 ## Known limitations
